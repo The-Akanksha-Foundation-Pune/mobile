@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "Capture Akanksha",
+    "slug": "capture-akanksha",
+    "version": "1.0.0",
+    "scheme": "captureakanksha",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "org.akanksha.capture",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "org.akanksha.capture"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "5f6e7234-c3f6-42e9-84b7-f348a043673a"
+      }
+    },
+    "plugins": [
+      "expo-web-browser",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.629988134724-in93md8e8gk604t64gqc1m7sfva0dnaf",
+          "iosClientId": "629988134724-in93md8e8gk604t64gqc1m7sfva0dnaf.apps.googleusercontent.com",
+          "androidClientId": "629988134724-9obom6r0hf1vobci72grn67nmckoum42.apps.googleusercontent.com",
+          "androidUrlScheme": "com.googleusercontent.apps.629988134724-9obom6r0hf1vobci72grn67nmckoum42"
+        }
+      ]
+    ],
+    "owner": "akankshadevteam"
+  }
+}
