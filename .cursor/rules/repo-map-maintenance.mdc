@@ -1,0 +1,19 @@
+---
+description: Keep repository map current on every structural change
+alwaysApply: true
+---
+
+# Repository Map Maintenance Rule
+
+- Treat `REPO_MAP.md` as a required living artifact.
+- Before implementing major changes, quickly read `REPO_MAP.md` and align architecture decisions.
+- After any structural change, update `REPO_MAP.md` in the same task/session:
+  - New/removed files or directories
+  - New services, routes, modules, or data stores
+  - Changes in integrations (auth, storage, database, external APIs)
+  - Meaningful data flow changes
+- Keep two views updated:
+  - A concise folder topology tree
+  - A runtime relationship graph (Mermaid)
+- Keep the map concise, factual, and implementation-specific; avoid generic text.
+- If a requested change is not reflected in `REPO_MAP.md`, treat the task as incomplete.

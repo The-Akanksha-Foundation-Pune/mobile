@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  employee
+  volunteer
+}
+
+enum MediaType {
+  photo
+  video
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  role          UserRole @default(volunteer)
+  googleSub     String   @unique
+  profileImage  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  uploadedEvents Event[]
+}
+
+model EventType {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  events    Event[]
+}
+
+model Event {
+  id             String    @id @default(cuid())
+  caption        String
+  eventDate      DateTime
+  mediaType      MediaType
+  mediaUrl       String
+  mediaDriveFileId String
+  originalName   String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  typeId         String
+  uploadedById   String
+  eventType      EventType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  uploadedBy     User      @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([typeId])
+  @@index([uploadedById])
+  @@index([eventDate])
+}
