@@ -89,11 +89,16 @@ export async function uploadEvent(args: {
   formData.append("typeId", typeId);
   formData.append("eventDate", eventDate);
   formData.append("mediaType", mediaType);
-  formData.append("media", {
-    uri: media.uri,
-    name: media.fileName || `upload-${Date.now()}`,
-    type: media.mimeType || (mediaType === "photo" ? "image/jpeg" : "video/mp4"),
-  } as unknown as Blob);
+  const mediaFile = (media as { file?: File }).file;
+  if (typeof window !== "undefined" && mediaFile instanceof File) {
+    formData.append("media", mediaFile, mediaFile.name);
+  } else {
+    formData.append("media", {
+      uri: media.uri,
+      name: media.fileName || `upload-${Date.now()}`,
+      type: media.mimeType || (mediaType === "photo" ? "image/jpeg" : "video/mp4"),
+    } as unknown as Blob);
+  }
 
   const response = await fetch(`${baseUrl}/api/events`, {
     method: "POST",

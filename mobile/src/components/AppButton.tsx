@@ -1,51 +1,83 @@
-import { Pressable, StyleSheet, Text } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useMemo } from "react";
+import { Pressable, StyleSheet, Text, View, useColorScheme } from "react-native";
 
 type AppButtonVariant = "primary" | "secondary" | "muted";
+type IconName = keyof typeof Ionicons.glyphMap;
 
 type AppButtonProps = {
   label: string;
   onPress: () => void;
   disabled?: boolean;
   variant?: AppButtonVariant;
+  iconName?: IconName;
 };
 
 export function AppButton(props: AppButtonProps) {
-  const { label, onPress, disabled = false, variant = "primary" } = props;
+  const { label, onPress, disabled = false, variant = "primary", iconName } = props;
+  const scheme = useColorScheme();
+  const isDark = scheme === "dark";
+  const styles = useMemo(() => getStyles(isDark), [isDark]);
+  const iconColor = variant === "muted" ? (isDark ? "#c8d6ff" : "#24344f") : "#ffffff";
 
   return (
     <Pressable
-      style={[
+      style={({ pressed }) => [
         styles.button,
         variant === "secondary" && styles.buttonSecondary,
         variant === "muted" && styles.buttonMuted,
         disabled && styles.buttonDisabled,
+        pressed && !disabled && styles.buttonPressed,
       ]}
       onPress={onPress}
       disabled={disabled}
     >
-      <Text style={[styles.buttonText, variant === "muted" && styles.buttonTextMuted]}>{label}</Text>
+      <View style={styles.content}>
+        {iconName ? <Ionicons name={iconName} size={16} color={iconColor} /> : null}
+        <Text style={[styles.buttonText, variant === "muted" && styles.buttonTextMuted]}>{label}</Text>
+      </View>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  button: {
-    backgroundColor: "#2c57d2",
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  buttonSecondary: {
-    backgroundColor: "#36588f",
-  },
-  buttonMuted: {
-    backgroundColor: "#e2e8f6",
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  buttonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  buttonTextMuted: { color: "#24344f", fontSize: 12 },
-});
+function getStyles(isDark: boolean) {
+  const mutedBackground = isDark ? "#1e2a45" : "#edf2ff";
+  const mutedBorder = isDark ? "#31466f" : "#dbe6ff";
+  const mutedText = isDark ? "#c8d6ff" : "#24344f";
+  const secondaryBackground = isDark ? "#415f99" : "#35548f";
+
+  return StyleSheet.create({
+    button: {
+      backgroundColor: "#2f6bf2",
+      borderRadius: 14,
+      paddingVertical: 13,
+      paddingHorizontal: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      boxShadow: "0px 6px 12px rgba(47, 107, 242, 0.2)",
+      elevation: 2,
+    },
+    buttonSecondary: {
+      backgroundColor: secondaryBackground,
+    },
+    buttonMuted: {
+      backgroundColor: mutedBackground,
+      borderWidth: 1,
+      borderColor: mutedBorder,
+    },
+    buttonDisabled: {
+      opacity: 0.6,
+    },
+    buttonPressed: {
+      transform: [{ scale: 0.985 }],
+    },
+    content: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+    },
+    buttonText: { color: "#fff", fontWeight: "700", fontSize: 15, letterSpacing: 0.2 },
+    buttonTextMuted: { color: mutedText, fontSize: 13 },
+  });
+}

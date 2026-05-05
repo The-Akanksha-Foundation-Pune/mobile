@@ -3,7 +3,39 @@ const { google } = require("googleapis");
 
 function getGooglePrivateKey() {
   const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || "";
-  return rawKey.replace(/\\n/g, "\n");
+  const trimmed = rawKey.trim();
+  const unquoted =
+    trimmed.startsWith('"') && trimmed.endsWith('"') ? trimmed.slice(1, -1).trim() : trimmed;
+  const normalized = unquoted.replace(/\\n/g, "\n");
+
+  if (!normalized) {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY is not configured.");
+  }
+
+  const looksLikePem =
+    normalized.includes("-----BEGIN PRIVATE KEY-----") &&
+    normalized.includes("-----END PRIVATE KEY-----");
+  const stillPlaceholder = normalized.includes("\n...\n");
+
+  if (!looksLikePem || stillPlaceholder) {
+    throw new Error(
+      "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY is invalid. Set the full service account private key PEM in backend .env (replace literal \\n with new lines or keep escaped \\n)."
+    );
+  }
+
+  return normalized;
+}
+
+function isDriveFullyConfigured() {
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_DRIVE_FOLDER_ID) {
+    return false;
+  }
+  try {
+    getGooglePrivateKey();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function getDriveClient() {
@@ -57,4 +89,5 @@ async function uploadToGoogleDrive({ buffer, originalName, mimeType }) {
 
 module.exports = {
   uploadToGoogleDrive,
+  isDriveFullyConfigured,
 };

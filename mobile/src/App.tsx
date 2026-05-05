@@ -22,10 +22,23 @@ WebBrowser.maybeCompleteAuthSession();
 
 export default function App() {
   const isExpoGo = Constants.appOwnership === "expo";
-  const shouldUseHostedWebRedirect = isExpoGo || Platform.OS === "web";
-  const redirectUri = shouldUseHostedWebRedirect
-    ? "https://auth.expo.io/@akankshadevteam/capture-akanksha"
-    : AuthSession.makeRedirectUri({ scheme: "captureakanksha" });
+  const redirectUri = useMemo(() => {
+    if (Platform.OS === "web") {
+      // Web should return to the current origin callback, not Expo hosted auth proxy.
+      return AuthSession.makeRedirectUri();
+    }
+
+    if (isExpoGo) {
+      const owner = Constants.expoConfig?.owner;
+      const slug = Constants.expoConfig?.slug;
+      if (owner && slug) {
+        return `https://auth.expo.io/@${owner}/${slug}`;
+      }
+      return AuthSession.makeRedirectUri();
+    }
+
+    return AuthSession.makeRedirectUri({ scheme: "captureakanksha" });
+  }, [isExpoGo]);
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const { route, setRoute } = useAppRoute();
@@ -118,10 +131,7 @@ export default function App() {
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes:
-        mediaType === "photo"
-          ? ImagePicker.MediaTypeOptions.Images
-          : ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: mediaType === "photo" ? ["images"] : ["videos"],
       quality: 0.7,
       videoMaxDuration: 60,
     });

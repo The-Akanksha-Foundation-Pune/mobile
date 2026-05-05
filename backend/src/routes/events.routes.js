@@ -3,7 +3,12 @@ const multer = require("multer");
 const { z } = require("zod");
 const { requireAuth } = require("../middleware/auth");
 const prisma = require("../lib/prisma");
-const { uploadToGoogleDrive } = require("../services/drive");
+const { uploadEventMedia } = require("../services/mediaUpload");
+const {
+  isAllowedMediaMime,
+  mimeMatchesDeclaredMediaType,
+} = require("../lib/allowedMedia");
+const { resolvePublicBaseUrl } = require("../lib/publicApiBase");
 
 const router = express.Router();
 
@@ -11,6 +16,13 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 50 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (isAllowedMediaMime(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only common image and video formats are allowed."));
+    }
   },
 });
 
@@ -87,7 +99,22 @@ router.get("/grouped", requireAuth, async (_req, res) => {
   return res.json(grouped);
 });
 
-router.post("/", requireAuth, upload.single("media"), async (req, res) => {
+router.post("/", requireAuth, (req, res, next) => {
+  upload.single("media")(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(413).json({ message: "File too large." });
+        }
+        return res.status(400).json({ message: err.message || "Upload rejected." });
+      }
+      return res.status(400).json({
+        message: err.message || "Upload rejected.",
+      });
+    }
+    next();
+  });
+}, async (req, res) => {
   const parsed = createEventSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid event payload." });
@@ -97,6 +124,15 @@ router.post("/", requireAuth, upload.single("media"), async (req, res) => {
     return res.status(400).json({ message: "Media file is required." });
   }
 
+  if (!mimeMatchesDeclaredMediaType(parsed.data.mediaType, req.file.mimetype)) {
+    return res.status(400).json({
+      message:
+        parsed.data.mediaType === "photo"
+          ? "Photo events require an image file."
+          : "Video events require a video file.",
+    });
+  }
+
   const typeExists = await prisma.eventType.findUnique({
     where: { id: parsed.data.typeId },
   });
@@ -104,11 +140,25 @@ router.post("/", requireAuth, upload.single("media"), async (req, res) => {
     return res.status(404).json({ message: "Selected event type does not exist." });
   }
 
-  const uploadedFile = await uploadToGoogleDrive({
-    buffer: req.file.buffer,
-    originalName: req.file.originalname,
-    mimeType: req.file.mimetype || "application/octet-stream",
-  });
+  const publicBase = resolvePublicBaseUrl(req);
+
+  let uploadedFile;
+  try {
+    uploadedFile = await uploadEventMedia({
+      buffer: req.file.buffer,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype || "application/octet-stream",
+      publicBaseUrl: publicBase,
+    });
+  } catch (err) {
+    if (err.code === "DRIVE_NOT_CONFIGURED") {
+      return res.status(503).json({
+        message:
+          "Google Drive is not configured. Set MEDIA_STORAGE=local for disk-only uploads, or configure GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY, and GOOGLE_DRIVE_FOLDER_ID.",
+      });
+    }
+    throw err;
+  }
 
   const nextEvent = await prisma.event.create({
     data: {

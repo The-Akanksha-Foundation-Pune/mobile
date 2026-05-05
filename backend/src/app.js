@@ -1,3 +1,4 @@
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -17,6 +18,9 @@ app.use(express.urlencoded({ extended: true }));
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "capture-akanksha-backend" });
 });
+
+const uploadsDir = path.join(__dirname, "..", "uploads");
+app.use("/media", express.static(uploadsDir));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/types", eventTypeRoutes);
