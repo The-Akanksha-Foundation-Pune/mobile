@@ -8,7 +8,7 @@ This file is the living map of the codebase structure and module relationships.
 captureAkanksha/
 ├── backend/                  # Node.js + Express API
 │   ├── prisma/
-│   │   └── schema.prisma     # MySQL Prisma models (User, EventType, Event)
+│   │   └── schema.prisma     # MySQL Prisma models (User, EventType, Event with uploader-name snapshot)
 │   ├── src/
 │   │   ├── app.js            # Express app wiring and route mounting
 │   │   ├── server.js         # Process entrypoint
@@ -20,6 +20,7 @@ captureAkanksha/
 │   │   │   └── auth.js       # JWT auth + role checks
 │   │   ├── routes/
 │   │   │   ├── auth.routes.js
+│   │   │   ├── ai.routes.js       # Auth-protected Gemini description polish endpoint
 │   │   │   ├── events.routes.js
 │   │   │   └── types.routes.js
 │   │   ├── services/
@@ -35,7 +36,7 @@ captureAkanksha/
 ├── mobile/                   # Expo React Native app
 │   ├── App.tsx               # Thin entrypoint re-exporting src/App
 │   ├── index.ts              # App registration
-│   ├── app.json
+│   ├── app.json              # Expo config (logo used for app icon/adaptive/favicon; adaptive background set to black)
 │   ├── eas.json              # EAS cloud build profiles
 │   ├── src/
 │   │   ├── App.tsx           # Root functional app orchestrator
@@ -45,17 +46,17 @@ captureAkanksha/
 │   │   │   ├── AppButton.tsx   # Themed button with optional Ionicon
 │   │   │   ├── AppCard.tsx
 │   │   │   ├── FormField.tsx   # Themed text input field
-│   │   │   ├── ScreenHeader.tsx # Home header with logout action/icon
+│   │   │   ├── ScreenHeader.tsx # Home header with contextual welcome text
 │   │   │   ├── SelectChip.tsx  # Themed chip selector with optional icon
 │   │   │   └── index.ts       # Barrel export for component imports
 │   │   ├── hooks/
 │   │   │   └── useAppRoute.ts
 │   │   ├── screens/
-│   │   │   ├── HomeScreen.tsx  # Two-tab home (Add event form + View/Likes feed)
+│   │   │   ├── HomeScreen.tsx  # Three-tab home (Add form + View/Likes feed + Profile/logout)
 │   │   │   ├── LoginScreen.tsx
 │   │   │   └── NotFoundScreen.tsx
 │   │   ├── services/
-│   │   │   └── api.ts        # Typed API client helpers
+│   │   │   └── api.ts        # Typed API client helpers (auth, events, AI polish via backend)
 │   │   ├── types/
 │   │   │   └── app.ts
 │   │   └── utils/
@@ -83,9 +84,11 @@ graph TD
   B --> C[Auth Routes]
   B --> D[Event Type Routes]
   B --> E[Event Routes]
+  B --> X[AI Routes]
   C --> F[JWT Middleware]
   D --> F
   E --> F
+  X --> F
   C --> G[Google Token Verification Service]
   C --> H[(MySQL DB via Prisma)]
   D --> H
@@ -106,6 +109,7 @@ graph LR
     MLogin["screens/LoginScreen.tsx"]
     MHome["screens/HomeScreen.tsx"]
     MApi["services/api.ts"]
+    MPolish["polishDescription() via backend"]
     MMedia["ImagePicker / FormData media upload"]
   end
 
@@ -114,6 +118,7 @@ graph LR
     BAuth["routes/auth.routes.js"]
     BTypes["routes/types.routes.js"]
     BEvents["routes/events.routes.js"]
+    BAi["routes/ai.routes.js"]
     BJwt["middleware/auth.js"]
     BGoogle["services/googleAuth.js"]
     BUpload["services/mediaUpload.js"]
@@ -136,6 +141,9 @@ graph LR
   BJwt --> BEvents
   BTypes --> DMySQL
   MHome --> MMedia
+  MHome --> MPolish
+  MPolish -->|"POST /api/ai/polish-description"| BAi
+  BAi -->|"Server-side API key"| GAI["Google Gemini API"]
   MMedia -->|"POST /api/events"| BEvents
   BEvents --> BUpload
   BUpload -->|"MEDIA_STORAGE=google"| BDrive
@@ -193,16 +201,18 @@ graph TD
 
 ## Data Flow Snapshot
 
-1. User signs in with Google from `mobile/src/screens/LoginScreen.tsx`.
+1. User lands on branded login (`mobile/src/screens/LoginScreen.tsx`) with top Akanksha logo and Google-only sign-in CTA.
 2. Mobile sends Google ID token to `/api/auth/google`.
 3. Backend verifies token, enforces allowed email domain, and upserts user in SQL.
 4. Backend returns JWT for API access.
 5. Mobile calls `/api/types` and `/api/events` with Bearer token.
 6. User captures photo/video and uploads to `/api/events`.
 7. Backend stores media via `mediaUpload.js`: `MEDIA_STORAGE=auto` uses Drive when service account + folder are valid, otherwise saves under `backend/uploads` and serves files at `GET /media/...`; `google` / `local` force one backend.
-8. In `Add` tab, mobile captures media and submits full event details (type, date, caption, mediaType, media file).
-9. In `View` tab, mobile renders events grouped by type/date and supports client-side like toggles per event.
-10. Core mobile UI components (`AppButton`, `SelectChip`, `FormField`, `AppCard`, `ScreenHeader`) switch styling by system color scheme (light/dark) and expose icon-driven actions.
+8. In `Add` tab, mobile sends description to `/api/ai/polish-description`; backend calls Gemini with `GOOGLE_AI_API_KEY` and returns polished text.
+9. Mobile captures media and submits full event details (title, description/caption, type, date, mediaType, media file); backend stores title, caption, uploader user id, and uploader name snapshot on each Event.
+10. In `View` tab, mobile renders events grouped by type/date, shows creator + upload timestamp metadata per card, and supports client-side like toggles per event.
+11. In `Profile` tab, mobile shows user identity and quick stats, and the logout action lives here (not in the header/nav shortcut).
+12. Core mobile UI components (`AppButton`, `SelectChip`, `FormField`, `AppCard`, `ScreenHeader`) switch styling by system color scheme (light/dark) and expose icon-driven actions.
 
 ## Current Gaps to Track
 

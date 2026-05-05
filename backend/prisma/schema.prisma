@@ -40,12 +40,14 @@ model EventType {
 
 model Event {
   id             String    @id @default(cuid())
+  title          String?
   caption        String
   eventDate      DateTime
   mediaType      MediaType
   mediaUrl       String
   mediaDriveFileId String
   originalName   String
+  uploadedByName String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   typeId         String

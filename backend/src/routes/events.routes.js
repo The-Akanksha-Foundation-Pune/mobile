@@ -27,6 +27,7 @@ const upload = multer({
 });
 
 const createEventSchema = z.object({
+  title: z.string().min(1).max(200),
   caption: z.string().min(1).max(500),
   typeId: z.string().min(1),
   eventDate: z.string().min(4),
@@ -50,13 +51,14 @@ router.get("/", requireAuth, async (req, res) => {
 
   const filtered = await prisma.event.findMany({
     where,
-    include: { eventType: true },
+    include: { eventType: true, uploadedBy: true },
     orderBy: { createdAt: "desc" },
   });
 
   return res.json(
     filtered.map((item) => ({
       id: item.id,
+      title: item.title || "",
       caption: item.caption,
       typeId: item.typeId,
       eventDate: item.eventDate.toISOString().slice(0, 10),
@@ -64,6 +66,8 @@ router.get("/", requireAuth, async (req, res) => {
       mediaUrl: item.mediaUrl,
       originalName: item.originalName,
       uploadedBy: item.uploadedById,
+      uploadedByName: item.uploadedByName || item.uploadedBy.name,
+      uploadedByEmail: item.uploadedBy.email,
       createdAt: item.createdAt,
       eventTypeName: item.eventType.name,
     }))
@@ -72,7 +76,7 @@ router.get("/", requireAuth, async (req, res) => {
 
 router.get("/grouped", requireAuth, async (_req, res) => {
   const allEvents = await prisma.event.findMany({
-    include: { eventType: true },
+    include: { eventType: true, uploadedBy: true },
     orderBy: { createdAt: "desc" },
   });
 
@@ -88,10 +92,14 @@ router.get("/grouped", requireAuth, async (_req, res) => {
     }
     grouped[typeName][dateKey].push({
       id: event.id,
+      title: event.title || "",
       caption: event.caption,
       mediaType: event.mediaType,
       mediaUrl: event.mediaUrl,
       originalName: event.originalName,
+      uploadedBy: event.uploadedById,
+      uploadedByName: event.uploadedByName || event.uploadedBy.name,
+      uploadedByEmail: event.uploadedBy.email,
       createdAt: event.createdAt,
     });
   }
@@ -162,6 +170,7 @@ router.post("/", requireAuth, (req, res, next) => {
 
   const nextEvent = await prisma.event.create({
     data: {
+      title: parsed.data.title.trim(),
       caption: parsed.data.caption.trim(),
       typeId: parsed.data.typeId,
       eventDate: new Date(`${parsed.data.eventDate}T00:00:00.000Z`),
@@ -170,11 +179,13 @@ router.post("/", requireAuth, (req, res, next) => {
       mediaDriveFileId: uploadedFile.fileId,
       originalName: req.file.originalname,
       uploadedById: req.user.id,
+      uploadedByName: req.user.name,
     },
   });
 
   return res.status(201).json({
     id: nextEvent.id,
+    title: nextEvent.title || "",
     caption: nextEvent.caption,
     typeId: nextEvent.typeId,
     eventDate: nextEvent.eventDate.toISOString().slice(0, 10),
@@ -182,6 +193,7 @@ router.post("/", requireAuth, (req, res, next) => {
     mediaUrl: nextEvent.mediaUrl,
     originalName: nextEvent.originalName,
     uploadedBy: nextEvent.uploadedById,
+    uploadedByName: nextEvent.uploadedByName,
     createdAt: nextEvent.createdAt,
   });
 });

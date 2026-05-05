@@ -43,6 +43,19 @@ export async function signInWithGoogle(idToken: string): Promise<AuthResponse> {
   return data;
 }
 
+export async function fetchCurrentUser(token: string): Promise<User> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.message || "Session is invalid.");
+  }
+  return data;
+}
+
 export async function fetchEventBootstrap(token: string): Promise<{
   eventTypes: EventType[];
   events: EventItem[];
@@ -72,6 +85,7 @@ export async function fetchEventBootstrap(token: string): Promise<{
 
 export async function uploadEvent(args: {
   token: string;
+  title: string;
   caption: string;
   typeId: string;
   eventDate: string;
@@ -79,12 +93,13 @@ export async function uploadEvent(args: {
   media: SelectedMedia;
 }): Promise<void> {
   const baseUrl = getApiBaseUrl();
-  const { token, caption, typeId, eventDate, mediaType, media } = args;
+  const { token, title, caption, typeId, eventDate, mediaType, media } = args;
   if (!media) {
     throw new Error("Media is required.");
   }
 
   const formData = new FormData();
+  formData.append("title", title.trim());
   formData.append("caption", caption.trim());
   formData.append("typeId", typeId);
   formData.append("eventDate", eventDate);
@@ -112,4 +127,32 @@ export async function uploadEvent(args: {
   if (!response.ok) {
     throw new Error(data.message || "Failed to submit event.");
   }
+}
+
+export async function polishEventDescription(args: { token: string; description: string }): Promise<string> {
+  const { token, description } = args;
+  const text = description.trim();
+  if (!text) {
+    throw new Error("Add a description before polishing.");
+  }
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/ai/polish-description`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ description: text }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.message || "Failed to polish description.");
+  }
+
+  const polished = data?.polished?.trim();
+  if (!polished) {
+    throw new Error("No polished text was returned.");
+  }
+  return polished;
 }

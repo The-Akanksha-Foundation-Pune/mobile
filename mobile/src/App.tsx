@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Platform } from "react-native";
-import * as AuthSession from "expo-auth-session";
+import { makeRedirectUri } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import * as ImagePicker from "expo-image-picker";
 import * as WebBrowser from "expo-web-browser";
-import Constants from "expo-constants";
 import {
   GOOGLE_ANDROID_CLIENT_ID,
-  GOOGLE_EXPO_CLIENT_ID,
   GOOGLE_IOS_CLIENT_ID,
   GOOGLE_WEB_CLIENT_ID,
 } from "./config/constants";
@@ -15,37 +13,32 @@ import { useAppRoute } from "./hooks/useAppRoute";
 import { HomeScreen } from "./screens/HomeScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
-import { fetchEventBootstrap, signInWithGoogle, uploadEvent } from "./services/api";
+import { fetchCurrentUser, fetchEventBootstrap, signInWithGoogle, uploadEvent } from "./services/api";
 import type { EventItem, EventType, MediaMode, SelectedMedia, User } from "./types/app";
 
 WebBrowser.maybeCompleteAuthSession();
 
+const WEB_AUTH_TOKEN_KEY = "captureakanksha.authToken";
+const PLATFORM_CLIENT_ID = Platform.select({
+  android: GOOGLE_ANDROID_CLIENT_ID,
+  ios: GOOGLE_IOS_CLIENT_ID,
+  default: GOOGLE_WEB_CLIENT_ID,
+});
+const NATIVE_REDIRECT_URI = makeRedirectUri({
+  scheme: "captureakanksha",
+  path: "oauthredirect",
+});
+
 export default function App() {
-  const isExpoGo = Constants.appOwnership === "expo";
-  const redirectUri = useMemo(() => {
-    if (Platform.OS === "web") {
-      // Web should return to the current origin callback, not Expo hosted auth proxy.
-      return AuthSession.makeRedirectUri();
-    }
-
-    if (isExpoGo) {
-      const owner = Constants.expoConfig?.owner;
-      const slug = Constants.expoConfig?.slug;
-      if (owner && slug) {
-        return `https://auth.expo.io/@${owner}/${slug}`;
-      }
-      return AuthSession.makeRedirectUri();
-    }
-
-    return AuthSession.makeRedirectUri({ scheme: "captureakanksha" });
-  }, [isExpoGo]);
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
+  const [isAuthBootstrapped, setIsAuthBootstrapped] = useState(Platform.OS !== "web");
   const { route, setRoute } = useAppRoute();
 
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState("");
+  const [eventTitle, setEventTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [eventDate, setEventDate] = useState(new Date().toISOString().slice(0, 10));
   const [mediaType, setMediaType] = useState<MediaMode>("photo");
@@ -53,12 +46,46 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    clientId: GOOGLE_EXPO_CLIENT_ID,
+    // Keep client IDs platform-specific so Android does not fall back to web client redirect behavior.
+    clientId: PLATFORM_CLIENT_ID,
     webClientId: GOOGLE_WEB_CLIENT_ID,
-    androidClientId: isExpoGo ? undefined : GOOGLE_ANDROID_CLIENT_ID,
-    iosClientId: isExpoGo ? undefined : GOOGLE_IOS_CLIENT_ID,
-    redirectUri,
+    androidClientId: GOOGLE_ANDROID_CLIENT_ID,
+    iosClientId: GOOGLE_IOS_CLIENT_ID,
+    redirectUri: Platform.OS === "web" ? undefined : NATIVE_REDIRECT_URI,
   });
+
+  useEffect(() => {
+    if (Platform.OS !== "web") {
+      return;
+    }
+
+    try {
+      const savedToken = window.localStorage.getItem(WEB_AUTH_TOKEN_KEY) || "";
+      if (savedToken) {
+        setToken(savedToken);
+      }
+    } catch (_error) {
+      // Ignore storage access issues and continue without a persisted session.
+    } finally {
+      setIsAuthBootstrapped(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") {
+      return;
+    }
+
+    try {
+      if (token) {
+        window.localStorage.setItem(WEB_AUTH_TOKEN_KEY, token);
+      } else {
+        window.localStorage.removeItem(WEB_AUTH_TOKEN_KEY);
+      }
+    } catch (_error) {
+      // Ignore storage write issues.
+    }
+  }, [token]);
 
   useEffect(() => {
     if (response?.type === "success") {
@@ -72,13 +99,16 @@ export default function App() {
         response.error?.description || response.error?.message || "Google auth request failed.";
       Alert.alert("Google sign-in error", errorDescription);
     }
+    if (response?.type === "dismiss" || response?.type === "cancel") {
+      Alert.alert("Google sign-in cancelled", "Please try again to continue.");
+    }
   }, [response]);
 
   useEffect(() => {
     if (!token) {
       return;
     }
-    void loadTypesAndEvents();
+    void hydrateAuthenticatedSession();
   }, [token]);
 
   const groupedEvents = useMemo(() => {
@@ -123,6 +153,17 @@ export default function App() {
     }
   }
 
+  async function hydrateAuthenticatedSession() {
+    try {
+      const me = await fetchCurrentUser(token);
+      setUser(me);
+      await loadTypesAndEvents();
+    } catch (error) {
+      handleLogout();
+      Alert.alert("Session expired", "Please sign in again.");
+    }
+  }
+
   async function handleCaptureFromCamera() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
@@ -142,8 +183,8 @@ export default function App() {
   }
 
   async function handleSubmitEvent() {
-    if (!selectedTypeId || !caption.trim() || !eventDate || !media) {
-      Alert.alert("Missing fields", "Type, date, caption and media are required.");
+    if (!selectedTypeId || !eventTitle.trim() || !caption.trim() || !eventDate || !media) {
+      Alert.alert("Missing fields", "Title, type, date, caption and media are required.");
       return;
     }
 
@@ -151,12 +192,14 @@ export default function App() {
       setIsLoading(true);
       await uploadEvent({
         token,
+        title: eventTitle,
         caption,
         typeId: selectedTypeId,
         eventDate,
         mediaType,
         media,
       });
+      setEventTitle("");
       setCaption("");
       setMedia(null);
       await loadTypesAndEvents();
@@ -174,8 +217,12 @@ export default function App() {
     setEvents([]);
     setEventTypes([]);
     setSelectedTypeId("");
+    setEventTitle("");
     setCaption("");
+    setEventDate(new Date().toISOString().slice(0, 10));
+    setMediaType("photo");
     setMedia(null);
+    setIsLoading(false);
     setRoute("home");
   }
 
@@ -183,22 +230,36 @@ export default function App() {
     return <NotFoundScreen onGoHome={() => setRoute("home")} onGoLogin={handleLogout} />;
   }
 
+  if (!isAuthBootstrapped) {
+    return null;
+  }
+
   if (!token || !user) {
     return (
       <LoginScreen
         isLoading={isLoading}
-        canStartLogin={Boolean(request)}
-        onLoginPress={() => promptAsync()}
+        canStartLogin
+        onLoginPress={() => {
+          if (!request) {
+            Alert.alert("Login not ready", "Google sign-in is still initializing. Please try again.");
+            return;
+          }
+          void promptAsync().catch((error) => {
+            Alert.alert("Google sign-in error", (error as Error).message);
+          });
+        }}
       />
     );
   }
 
   return (
     <HomeScreen
+      token={token}
       user={user}
       eventTypes={eventTypes}
       groupedEvents={groupedEvents}
       selectedTypeId={selectedTypeId}
+      eventTitle={eventTitle}
       caption={caption}
       eventDate={eventDate}
       mediaType={mediaType}
@@ -208,6 +269,7 @@ export default function App() {
       onSelectMediaType={setMediaType}
       onSelectType={setSelectedTypeId}
       onChangeEventDate={setEventDate}
+      onChangeEventTitle={setEventTitle}
       onChangeCaption={setCaption}
       onCaptureMedia={handleCaptureFromCamera}
       onSaveEvent={handleSubmitEvent}

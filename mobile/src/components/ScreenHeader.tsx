@@ -1,15 +1,13 @@
 import { useMemo } from "react";
 import { StyleSheet, Text, View, useColorScheme } from "react-native";
-import { AppButton } from "./AppButton";
 
 type ScreenHeaderProps = {
   title: string;
   subtitle: string;
-  onLogout: () => void;
 };
 
 export function ScreenHeader(props: ScreenHeaderProps) {
-  const { title, subtitle, onLogout } = props;
+  const { title, subtitle } = props;
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const styles = useMemo(() => getStyles(isDark), [isDark]);
@@ -20,7 +18,6 @@ export function ScreenHeader(props: ScreenHeaderProps) {
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.subtitle}>{subtitle}</Text>
       </View>
-      <AppButton label="Logout" variant="muted" iconName="log-out-outline" onPress={onLogout} />
     </View>
   );
 }

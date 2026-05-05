@@ -4,6 +4,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const authRoutes = require("./routes/auth.routes");
+const aiRoutes = require("./routes/ai.routes");
 const eventTypeRoutes = require("./routes/types.routes");
 const eventRoutes = require("./routes/events.routes");
 
@@ -23,6 +24,7 @@ const uploadsDir = path.join(__dirname, "..", "uploads");
 app.use("/media", express.static(uploadsDir));
 
 app.use("/api/auth", authRoutes);
+app.use("/api/ai", aiRoutes);
 app.use("/api/types", eventTypeRoutes);
 app.use("/api/events", eventRoutes);
 
