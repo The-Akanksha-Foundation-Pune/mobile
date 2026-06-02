@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert, Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { makeRedirectUri } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import { GoogleSignin, isErrorWithCode, statusCodes } from "@react-native-google-signin/google-signin";
@@ -24,7 +25,7 @@ import {
   uploadEvent,
 } from "./services/api";
 import { getDummyCostCenters, USE_DUMMY_HUB_DATA } from "./data/dummyHubData";
-import type { City, CostCenter, EventType, MediaMode, SelectedMedia, User } from "./types/app";
+import type { City, CostCenter, EventItem, EventType, MediaMode, SelectedMedia, User } from "./types/app";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -53,11 +54,12 @@ const NATIVE_REDIRECT_URI = makeRedirectUri({
 export default function App() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
-  const [isAuthBootstrapped, setIsAuthBootstrapped] = useState(Platform.OS !== "web");
+  const [isAuthBootstrapped, setIsAuthBootstrapped] = useState(false);
   const { route, setRoute } = useAppRoute();
 
   const [cities, setCities] = useState<City[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
+  const [events, setEvents] = useState<EventItem[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState("");
   const [eventTitle, setEventTitle] = useState("");
@@ -87,26 +89,44 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== "web") return;
-    try {
-      const savedToken = window.localStorage.getItem(WEB_AUTH_TOKEN_KEY) || "";
-      if (savedToken) setToken(savedToken);
-    } catch (_error) {
-      // Ignore storage access issues.
-    } finally {
-      setIsAuthBootstrapped(true);
+    async function bootstrapAuthToken() {
+      try {
+        if (Platform.OS === "web") {
+          const savedToken = window.localStorage.getItem(WEB_AUTH_TOKEN_KEY) || "";
+          if (savedToken) setToken(savedToken);
+          return;
+        }
+        const savedToken = (await AsyncStorage.getItem(WEB_AUTH_TOKEN_KEY)) || "";
+        if (savedToken) setToken(savedToken);
+      } catch (_error) {
+        // Ignore storage access issues.
+      } finally {
+        setIsAuthBootstrapped(true);
+      }
     }
+    void bootstrapAuthToken();
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== "web") return;
-    try {
-      if (token) window.localStorage.setItem(WEB_AUTH_TOKEN_KEY, token);
-      else window.localStorage.removeItem(WEB_AUTH_TOKEN_KEY);
-    } catch (_error) {
-      // Ignore storage write issues.
+    async function persistToken() {
+      try {
+        if (Platform.OS === "web") {
+          if (token) window.localStorage.setItem(WEB_AUTH_TOKEN_KEY, token);
+          else window.localStorage.removeItem(WEB_AUTH_TOKEN_KEY);
+          return;
+        }
+        if (token) {
+          await AsyncStorage.setItem(WEB_AUTH_TOKEN_KEY, token);
+        } else {
+          await AsyncStorage.removeItem(WEB_AUTH_TOKEN_KEY);
+        }
+      } catch (_error) {
+        // Ignore storage write issues.
+      }
     }
-  }, [token]);
+    if (!isAuthBootstrapped) return;
+    void persistToken();
+  }, [token, isAuthBootstrapped]);
 
   useEffect(() => {
     if (response?.type === "success") {
@@ -144,8 +164,24 @@ export default function App() {
   async function handleNativeGoogleSignIn() {
     try {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      const userInfo = await GoogleSignin.signIn();
-      const idToken = userInfo.data?.idToken;
+      // Ensure Android shows the account chooser (emails on device)
+      // instead of silently reusing a previously selected account.
+      const hasSession = GoogleSignin.hasPreviousSignIn();
+      if (hasSession) {
+        await GoogleSignin.signOut();
+      }
+      const signInResult = await GoogleSignin.signIn();
+      if (signInResult.type !== "success") {
+        Alert.alert("Google sign-in cancelled", "Please try again to continue.");
+        return;
+      }
+      let idToken = signInResult.data.idToken;
+      // Some Android builds can return a null idToken from signIn(),
+      // but getTokens() still returns it for the active account.
+      if (!idToken) {
+        const tokens = await GoogleSignin.getTokens();
+        idToken = tokens.idToken;
+      }
       if (!idToken) {
         throw new Error("Google did not return an ID token. Check OAuth client setup.");
       }
@@ -174,6 +210,7 @@ export default function App() {
     const centerList = USE_DUMMY_HUB_DATA ? getDummyCostCenters() : await fetchCostCenters(token);
     const cityList = USE_DUMMY_HUB_DATA ? [] : await fetchCities(token);
     setEventTypes(bootstrap.eventTypes);
+    setEvents(bootstrap.events);
     setCostCenters(centerList);
     setCities(
       USE_DUMMY_HUB_DATA
@@ -260,10 +297,14 @@ export default function App() {
   }
 
   function handleLogout() {
+    void AsyncStorage.removeItem(WEB_AUTH_TOKEN_KEY).catch(() => {
+      // Ignore async storage cleanup issues on logout.
+    });
     setToken("");
     setUser(null);
     setCities([]);
     setCostCenters([]);
+    setEvents([]);
     setEventTypes([]);
     setSelectedTypeId("");
     setEventTitle("");
@@ -312,6 +353,7 @@ export default function App() {
       user={user}
       cities={cities}
       costCenters={costCenters}
+      events={events}
       eventTypes={eventTypes}
       selectedTypeId={selectedTypeId}
       eventTitle={eventTitle}

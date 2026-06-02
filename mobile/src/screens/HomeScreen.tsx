@@ -1,10 +1,18 @@
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View, useColorScheme } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View, useColorScheme } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppButton } from "../components";
-import type { City, CostCenter, EventType, MediaMode, SelectedMedia, User } from "../types/app";
+import type {
+  City,
+  CostCenter,
+  EventItem,
+  EventType,
+  MediaMode,
+  SelectedMedia,
+  User,
+} from "../types/app";
 import { darkPalette, palette } from "../theme/theme";
 import { AddEventScreen } from "./AddEventScreen";
 import { AdminScreen } from "./AdminScreen";
@@ -17,6 +25,7 @@ type HomeScreenProps = {
   user: User;
   cities: City[];
   costCenters: CostCenter[];
+  events: EventItem[];
   eventTypes: EventType[];
   selectedTypeId: string;
   eventTitle: string;
@@ -45,6 +54,7 @@ export function HomeScreen(props: HomeScreenProps) {
     user,
     cities,
     costCenters,
+    events,
     eventTypes,
     selectedTypeId,
     eventTitle,
@@ -71,7 +81,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const isDark = useColorScheme() === "dark";
   const styles = useMemo(() => getStyles(isDark), [isDark]);
   const colors = isDark ? darkPalette : palette;
-  const isAdmin = user.role === "admin";
+  const isAdmin = Platform.OS === "web" && user.role === "admin";
 
   const costCentersForCity = useMemo(() => {
     if (!selectedCity) return [];
@@ -147,8 +157,11 @@ export function HomeScreen(props: HomeScreenProps) {
       <>
         <CityPickerScreen
           cities={cities}
+          costCenters={costCenters}
+          events={events}
           userName={user.name}
           onSelectCity={setSelectedCity}
+          onOpenProfile={() => setOverlay("profile")}
         />
         <StatusBar style="light" />
       </>
@@ -177,6 +190,11 @@ export function HomeScreen(props: HomeScreenProps) {
         city={selectedCity}
         costCenter={selectedCostCenter}
         isAdmin={isAdmin}
+        onGoHome={() => {
+          setOverlay(null);
+          setSelectedCostCenter(null);
+          setSelectedCity(null);
+        }}
         onChangeCity={() => {
           setSelectedCostCenter(null);
           setSelectedCity(null);

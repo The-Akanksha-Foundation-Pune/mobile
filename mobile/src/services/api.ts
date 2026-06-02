@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../config/constants";
+import { Platform } from "react-native";
 import { resolveEventMediaUrl } from "../utils/mediaUrl";
 import type {
   CalendarEntry,
@@ -18,7 +19,13 @@ type AuthResponse = {
 };
 
 function getApiBaseUrl(): string {
-  if (typeof window === "undefined") {
+  // Android emulators cannot access host loopback via 127.0.0.1/localhost.
+  // Route local API calls to the host machine through 10.0.2.2.
+  if (Platform.OS === "android") {
+    return API_BASE_URL.replace("://127.0.0.1", "://10.0.2.2").replace("://localhost", "://10.0.2.2");
+  }
+
+  if (typeof window === "undefined" || !window.location?.hostname) {
     return API_BASE_URL;
   }
 

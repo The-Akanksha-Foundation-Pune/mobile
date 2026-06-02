@@ -61,7 +61,7 @@ captureAkanksha/
 │   │   │   └── ...
 │   │   ├── screens/
 │   │   │   ├── CostCenterPickerScreen.tsx  # Cost centers grouped by city (hub entry)
-│   │   │   ├── EventsHubScreen.tsx    # Ongoing | Upcoming | CaptureAkanksha | Calendar
+│   │   │   ├── EventsHubScreen.tsx    # Feed | Ongoing | Upcoming | CaptureAkanksha | Calendar
 │   │   │   ├── AddEventScreen.tsx
 │   │   │   ├── AdminScreen.tsx        # Admin-only moderation + calendar + cities
 │   │   │   ├── HomeScreen.tsx         # City picker → cost center picker → hub
@@ -71,6 +71,7 @@ captureAkanksha/
 │   │   └── utils/
 │   │       ├── costCenterGrouping.ts
 │   │       ├── eventGrouping.ts
+│   │       ├── locationCity.ts       # City bounds, sort cities/events by detected city
 │   │       └── mediaUrl.ts         # Client-side loopback → API_BASE_URL rewrite
 │   └── package.json
 ├── package.json
@@ -153,7 +154,8 @@ graph LR
 2. Mobile loads cost centers (`GET /api/cost-centers`) synced from `Finance.costcenter` (only rows with a city that exists in `City` table).
 3. **Cost center picker**: user selects a cost center (each has registered donors).
 4. **Events hub** for that cost center (event **type** still applies per event):
-   - **Ongoing** / **Upcoming** / **CaptureAkanksha** / **Calendar** — all filtered by `costCenterId`
+   - **Feed** shows all city events in a vertical stream (`GET /api/events?cityId`)
+   - **Ongoing** / **Upcoming** / **CaptureAkanksha** / **Calendar** — all filtered by `costCenterId` (capture remains city-scoped)
    - CaptureAkanksha: `GET /api/events?cityId=&status=complete` (all completed events in the selected city, including via cost center), grouped by date and location; gallery-approved items show a badge
 5. Upload: `POST /api/events` requires `costCenterId` + `typeId`; optional `cityId` for venue.
 6. Media links: `GET /api/events` and `GET /api/events/grouped` rewrite loopback `mediaUrl` values via `resolveMediaUrl.js` (and mobile `utils/mediaUrl.ts` as a fallback).

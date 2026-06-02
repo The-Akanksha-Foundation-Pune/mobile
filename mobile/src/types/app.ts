@@ -92,4 +92,4 @@ export type MediaMode = "photo" | "video";
 
 export type SelectedMedia = ImagePickerAsset | null;
 
-export type HubTab = "ongoing" | "upcoming" | "capture" | "calendar";
+export type HubTab = "feed" | "ongoing" | "upcoming" | "capture" | "calendar";

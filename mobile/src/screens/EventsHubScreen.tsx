@@ -32,6 +32,7 @@ type EventsHubScreenProps = {
   city: City;
   costCenter: CostCenter;
   isAdmin: boolean;
+  onGoHome: () => void;
   onChangeCity: () => void;
   onChangeCostCenter: () => void;
   onOpenAdd: () => void;
@@ -44,16 +45,18 @@ export function EventsHubScreen({
   city,
   costCenter,
   isAdmin,
+  onGoHome,
   onChangeCity,
   onChangeCostCenter,
   onOpenAdd,
   onOpenAdmin,
   onOpenProfile,
 }: EventsHubScreenProps) {
-  const [activeTab, setActiveTab] = useState<HubTab>("ongoing");
+  const [activeTab, setActiveTab] = useState<HubTab>("feed");
   const [ongoing, setOngoing] = useState<EventItem[]>([]);
   const [upcoming, setUpcoming] = useState<EventItem[]>([]);
   const [completedEvents, setCompletedEvents] = useState<EventItem[]>([]);
+  const [allEventsFeed, setAllEventsFeed] = useState<EventItem[]>([]);
   const [calendarEntries, setCalendarEntries] = useState<CalendarEntry[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -80,11 +83,41 @@ export function EventsHubScreen({
     [costCenter, month, calendarEntries]
   );
   const captureGroups = useMemo(() => groupByDateAndLocation(captureEvents), [captureEvents]);
+  const feedEvents = useMemo(() => {
+    if (USE_DUMMY_HUB_DATA) {
+      const merged = [...getDummyCompletedEventsByCity(city), ...getDummyOngoingEvents(costCenter), ...getDummyUpcomingEvents(costCenter)];
+      const seen = new Set<string>();
+      return merged
+        .filter((event) => {
+          if (seen.has(event.id)) return false;
+          seen.add(event.id);
+          return true;
+        })
+        .sort((a, b) => {
+          const dateDiff = b.eventDate.localeCompare(a.eventDate);
+          if (dateDiff !== 0) return dateDiff;
+          return b.createdAt.localeCompare(a.createdAt);
+        });
+    }
+
+    return [...allEventsFeed].sort((a, b) => {
+      const dateDiff = b.eventDate.localeCompare(a.eventDate);
+      if (dateDiff !== 0) return dateDiff;
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+  }, [allEventsFeed, city, costCenter]);
 
   const dateEntries = useMemo(
     () => calendarForDisplay.filter((entry) => entry.eventDate === selectedDate),
     [calendarForDisplay, selectedDate]
   );
+
+  function formatCreatedAt(value?: string) {
+    if (!value) return "Unknown upload time";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
+  }
 
   async function loadHubData() {
     if (USE_DUMMY_HUB_DATA) {
@@ -92,15 +125,17 @@ export function EventsHubScreen({
     }
     setLoading(true);
     try {
-      const [ongoingResult, upcomingResult, completeResult, calendarResult] = await Promise.allSettled([
+      const [ongoingResult, upcomingResult, completeResult, allResult, calendarResult] = await Promise.allSettled([
         fetchEvents({ token, costCenterId: costCenter.id, status: "ongoing" }),
         fetchEvents({ token, costCenterId: costCenter.id, status: "upcoming" }),
         fetchEvents({ token, cityId: city.id, status: "complete" }),
+        fetchEvents({ token, cityId: city.id }),
         fetchCalendarEntries({ token, costCenterId: costCenter.id, month }),
       ]);
       setOngoing(ongoingResult.status === "fulfilled" ? ongoingResult.value : []);
       setUpcoming(upcomingResult.status === "fulfilled" ? upcomingResult.value : []);
       setCompletedEvents(completeResult.status === "fulfilled" ? completeResult.value : []);
+      setAllEventsFeed(allResult.status === "fulfilled" ? allResult.value : []);
       setCalendarEntries(calendarResult.status === "fulfilled" ? calendarResult.value : []);
     } finally {
       setLoading(false);
@@ -145,6 +180,9 @@ export function EventsHubScreen({
           </Pressable>
         </View>
         <View style={styles.topActions}>
+          <Pressable style={styles.iconBtn} onPress={onGoHome}>
+            <Ionicons name="home-outline" size={20} color="#fff" />
+          </Pressable>
           {isAdmin ? (
             <Pressable style={styles.iconBtn} onPress={onOpenAdmin}>
               <Ionicons name="shield-checkmark-outline" size={20} color="#fff" />
@@ -159,6 +197,7 @@ export function EventsHubScreen({
       <View style={styles.tabRow}>
         {(
           [
+            { id: "feed", label: "Feed" },
             { id: "ongoing", label: "Ongoing" },
             { id: "upcoming", label: "Upcoming" },
             { id: "capture", label: "CaptureAkanksha" },
@@ -177,6 +216,48 @@ export function EventsHubScreen({
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {loading ? <Text style={styles.loading}>Refreshing events...</Text> : null}
+
+        {activeTab === "feed" ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>All Events Feed</Text>
+            <Text style={styles.sectionHint}>Latest city events in a continuous feed.</Text>
+            {feedEvents.length === 0 ? (
+              <Text style={styles.empty}>No events to show right now.</Text>
+            ) : (
+              <View style={styles.cardsGrid}>
+                {feedEvents.map((event) => (
+                  <Pressable
+                    key={event.id}
+                    style={({ pressed }) => [styles.thumbCard, pressed && styles.pressed]}
+                    onPress={() => setSelectedEvent(event)}
+                  >
+                    {event.mediaType === "photo" && event.mediaUrl ? (
+                      <Image source={{ uri: event.mediaUrl }} style={styles.thumbImage} />
+                    ) : event.mediaType === "video" && event.mediaUrl && Platform.OS === "web" ? (
+                      <video src={event.mediaUrl} style={{ width: "100%", height: 120 }} />
+                    ) : (
+                      <View style={styles.thumbFallback}>
+                        <Ionicons name="videocam-outline" size={18} color={colors.brand} />
+                      </View>
+                    )}
+                    <View style={styles.thumbBody}>
+                      <Text style={styles.thumbTitle} numberOfLines={2}>
+                        {event.title || "Untitled event"}
+                      </Text>
+                      <Text style={styles.thumbMeta} numberOfLines={1}>
+                        {event.eventDate} • {event.location || "No location"}
+                      </Text>
+                      <Text style={styles.thumbMeta} numberOfLines={1}>
+                        {event.eventTypeName}
+                        {event.costCenterCode ? ` • ${event.costCenterCode}` : ""}
+                      </Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+        ) : null}
 
         {activeTab === "ongoing" ? (
           <View style={styles.section}>
@@ -247,6 +328,14 @@ export function EventsHubScreen({
                 </View>
               ))
             )}
+            <View style={styles.inlineSection}>
+              <Text style={styles.sectionTitle}>Ongoing — {costCenter.name}</Text>
+              {renderHorizontalEvents(ongoingEvents, "No ongoing events in this city yet.")}
+            </View>
+            <View style={styles.inlineSection}>
+              <Text style={styles.sectionTitle}>Upcoming — {costCenter.name}</Text>
+              {renderHorizontalEvents(upcomingEvents, "No upcoming events in this city yet.")}
+            </View>
           </View>
         ) : null}
 
@@ -282,7 +371,7 @@ export function EventsHubScreen({
         <Ionicons name="add" size={30} color="#11141d" />
       </Pressable>
 
-      <Modal visible={Boolean(selectedEvent)} animationType="slide" transparent onRequestClose={() => setSelectedEvent(null)}>
+      <Modal visible={Boolean(selectedEvent)} animationType="fade" transparent onRequestClose={() => setSelectedEvent(null)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
             <View style={styles.modalHeader}>
@@ -304,6 +393,17 @@ export function EventsHubScreen({
                 {selectedEvent?.location ? ` • ${selectedEvent.location}` : ""}
               </Text>
               <Text style={styles.modalCaption}>{selectedEvent?.caption}</Text>
+              <Text style={styles.modalMeta}>City: {selectedEvent?.cityName || city.name}</Text>
+              <Text style={styles.modalMeta}>Cost Center: {selectedEvent?.costCenterName || "Not provided"}</Text>
+              <Text style={styles.modalMeta}>Status: {selectedEvent?.eventStatus || "Not provided"}</Text>
+              <Text style={styles.modalMeta}>Uploaded by: {selectedEvent?.uploadedByName || "Unknown user"}</Text>
+              {selectedEvent?.uploadedByEmail ? (
+                <Text style={styles.modalMeta}>Uploader email: {selectedEvent.uploadedByEmail}</Text>
+              ) : null}
+              <Text style={styles.modalMeta}>Uploaded on: {formatCreatedAt(selectedEvent?.createdAt)}</Text>
+              <Text style={styles.modalMeta}>
+                Gallery approved: {selectedEvent?.approvedForGallery ? "Yes" : "No"}
+              </Text>
             </ScrollView>
           </View>
         </View>
@@ -363,10 +463,36 @@ function getStyles(isDark: boolean) {
     content: { padding: 16, paddingBottom: 100, gap: 14 },
     loading: { color: colors.inkSoft, fontSize: 12 },
     section: { gap: 10 },
+    inlineSection: { gap: 8, marginTop: 12 },
     sectionTitle: { fontSize: 18, fontWeight: "800", color: colors.ink },
     sectionHint: { fontSize: 12, color: colors.inkSoft },
     horizontalList: { paddingRight: 8 },
     empty: { color: colors.inkSoft, fontStyle: "italic" },
+    cardsGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: "space-between",
+      gap: 10,
+    },
+    thumbCard: {
+      width: "48%",
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      overflow: "hidden",
+    },
+    thumbImage: { width: "100%", height: 120, backgroundColor: isDark ? "#1f304f" : "#e8edf8" },
+    thumbFallback: {
+      width: "100%",
+      height: 120,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: isDark ? "#1b2a46" : "#edf3ff",
+    },
+    thumbBody: { paddingHorizontal: 12, paddingVertical: 10, gap: 4, flex: 1 },
+    thumbTitle: { fontSize: 14, fontWeight: "800", color: colors.ink },
+    thumbMeta: { fontSize: 11, color: colors.inkSoft },
     galleryGroup: { gap: 8 },
     galleryDate: { fontSize: 15, fontWeight: "800", color: colors.ink },
     locationBlock: { gap: 8 },
@@ -430,14 +556,17 @@ function getStyles(isDark: boolean) {
     modalOverlay: {
       flex: 1,
       backgroundColor: "rgba(0,0,0,0.45)",
-      justifyContent: "flex-end",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
     },
     modalSheet: {
+      width: "100%",
+      maxWidth: 680,
       maxHeight: "88%",
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
+      borderRadius: 16,
       backgroundColor: colors.surface,
-      padding: 16,
+      padding: 14,
     },
     modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
     modalBrand: { fontSize: 12, fontWeight: "800", color: colors.inkSoft, textTransform: "uppercase" },

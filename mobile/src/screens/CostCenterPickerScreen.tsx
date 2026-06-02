@@ -81,7 +81,9 @@ export function CostCenterPickerScreen({
                 <Text style={styles.donors}>{item.donorCount} donor(s) registered</Text>
               ) : null}
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.inkSoft} />
+            <View style={styles.chevronWrap}>
+              <Ionicons name="chevron-forward" size={18} color={colors.inkSoft} />
+            </View>
           </Pressable>
         )}
         ListEmptyComponent={
@@ -147,7 +149,7 @@ function getStyles(isDark: boolean) {
     },
     searchInput: { flex: 1, fontSize: 15, color: colors.ink },
     sectionTitle: {
-      marginTop: 18,
+      marginTop: 14,
       marginHorizontal: 18,
       fontSize: 13,
       fontWeight: "800",
@@ -155,16 +157,19 @@ function getStyles(isDark: boolean) {
       textTransform: "uppercase",
       letterSpacing: 0.8,
     },
-    list: { paddingHorizontal: 18, paddingBottom: 24, paddingTop: 8, gap: 8 },
+    list: { paddingHorizontal: 18, paddingBottom: 24, paddingTop: 6, gap: 8 },
     row: {
       flexDirection: "row",
       alignItems: "center",
+      justifyContent: "space-between",
       gap: 12,
       borderRadius: 14,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
-      padding: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      minHeight: 74,
     },
     pressed: { opacity: 0.9 },
     icon: {
@@ -175,7 +180,12 @@ function getStyles(isDark: boolean) {
       justifyContent: "center",
       backgroundColor: isDark ? "#1f2b46" : "#fff0f1",
     },
-    textWrap: { flex: 1, gap: 2 },
+    textWrap: { flex: 1, gap: 2, justifyContent: "center" },
+    chevronWrap: {
+      width: 20,
+      alignItems: "center",
+      justifyContent: "center",
+    },
     name: { fontSize: 16, fontWeight: "800", color: colors.ink },
     code: { fontSize: 12, color: colors.inkSoft },
     donors: { fontSize: 11, color: colors.brand, fontWeight: "600" },

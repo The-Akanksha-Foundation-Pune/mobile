@@ -4,7 +4,7 @@
     "slug": "capture-akanksha",
     "version": "1.0.0",
     "scheme": "captureakanksha",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -39,6 +39,12 @@
     },
     "plugins": [
       "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Capture Akanksha to use your location to suggest your city and show nearby events first."
+        }
+      ],
       [
         "@react-native-google-signin/google-signin",
         {
