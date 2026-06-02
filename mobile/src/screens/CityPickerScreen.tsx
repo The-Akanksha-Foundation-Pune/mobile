@@ -20,7 +20,7 @@ function getCityIconSource(cityName: string) {
   const name = cityName.trim().toLowerCase();
   if (name === "mumbai") return require("../../assets/cities/mumbai.png");
   if (name === "pune") return require("../../assets/cities/pune.png");
-  if (name === "nagpur") return require("../../assets/cities/nagpur.png");
+  if (name === "nagpur") return require("../../assets/cities/nagpur-selected.png");
   return require("../../assets/cities/mumbai.png");
 }
 
