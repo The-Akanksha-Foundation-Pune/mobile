@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Platform } from "react-native";
 import { makeRedirectUri } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
+import { GoogleSignin, isErrorWithCode, statusCodes } from "@react-native-google-signin/google-signin";
 import * as ImagePicker from "expo-image-picker";
 import * as WebBrowser from "expo-web-browser";
 import {
@@ -76,6 +77,16 @@ export default function App() {
   });
 
   useEffect(() => {
+    if (Platform.OS === "web") return;
+    GoogleSignin.configure({
+      webClientId: GOOGLE_WEB_CLIENT_ID,
+      iosClientId: GOOGLE_IOS_CLIENT_ID,
+      // Keeps Android native flow compatible with backend audience checks.
+      offlineAccess: false,
+    });
+  }, []);
+
+  useEffect(() => {
     if (Platform.OS !== "web") return;
     try {
       const savedToken = window.localStorage.getItem(WEB_AUTH_TOKEN_KEY) || "";
@@ -127,6 +138,34 @@ export default function App() {
       Alert.alert("Login error", (error as Error).message);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleNativeGoogleSignIn() {
+    try {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const userInfo = await GoogleSignin.signIn();
+      const idToken = userInfo.data?.idToken;
+      if (!idToken) {
+        throw new Error("Google did not return an ID token. Check OAuth client setup.");
+      }
+      await handleGoogleLogin(idToken);
+    } catch (error) {
+      if (isErrorWithCode(error)) {
+        if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+          Alert.alert("Google sign-in cancelled", "Please try again to continue.");
+          return;
+        }
+        if (error.code === statusCodes.IN_PROGRESS) {
+          Alert.alert("Google sign-in", "A sign-in request is already in progress.");
+          return;
+        }
+        if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+          Alert.alert("Google Play Services", "Google Play Services is missing or outdated on this device.");
+          return;
+        }
+      }
+      Alert.alert("Google sign-in error", (error as Error).message || "Sign-in failed.");
     }
   }
 
@@ -251,6 +290,10 @@ export default function App() {
         isLoading={isLoading}
         canStartLogin
         onLoginPress={() => {
+          if (Platform.OS !== "web") {
+            void handleNativeGoogleSignIn();
+            return;
+          }
           if (!request) {
             Alert.alert("Login not ready", "Google sign-in is still initializing. Please try again.");
             return;
