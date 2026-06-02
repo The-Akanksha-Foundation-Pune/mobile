@@ -11,11 +11,18 @@ enum UserRole {
   admin
   employee
   volunteer
+  donor
 }
 
 enum MediaType {
   photo
   video
+}
+
+enum EventStatus {
+  upcoming
+  ongoing
+  complete
 }
 
 model User {
@@ -38,24 +45,121 @@ model EventType {
   events    Event[]
 }
 
+model City {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  state     String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  costCenters      CostCenter[]
+  events           Event[]
+  calendarEntries  CalendarEntry[]
+}
+
+model CostCenter {
+  id          String   @id @default(cuid())
+  financeId   String?  @unique
+  code        String   @unique
+  name        String
+  description String?  @db.Text
+  cityId      String?
+  city        City?    @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  donors           Donor[]
+  events           Event[]
+  calendarEntries  CalendarEntry[]
+  notifications    DonorNotification[]
+
+  @@index([cityId])
+}
+
+model Donor {
+  id            String     @id @default(cuid())
+  email         String
+  name          String
+  costCenterId  String
+  costCenter    CostCenter @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  notifications DonorNotification[]
+
+  @@unique([email, costCenterId])
+  @@index([costCenterId])
+}
+
+model DonorNotification {
+  id           String     @id @default(cuid())
+  donorId      String
+  donor        Donor      @relation(fields: [donorId], references: [id], onDelete: Cascade)
+  costCenterId String
+  costCenter   CostCenter @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  eventId      String?
+  event        Event?     @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  subject      String
+  message      String     @db.Text
+  sentAt       DateTime   @default(now())
+
+  @@index([costCenterId])
+  @@index([eventId])
+  @@index([donorId])
+}
+
+model CalendarEntry {
+  id            String     @id @default(cuid())
+  title         String
+  description   String?    @db.Text
+  eventDate     DateTime
+  endDate       DateTime?
+  location      String?
+  cityId        String?
+  city          City?       @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  costCenterId  String?
+  costCenter    CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  isPublished   Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([cityId])
+  @@index([costCenterId])
+  @@index([eventDate])
+}
+
 model Event {
-  id             String    @id @default(cuid())
-  title          String?
-  caption        String
-  eventDate      DateTime
-  mediaType      MediaType
-  mediaUrl       String
-  mediaDriveFileId String
-  originalName   String
-  uploadedByName String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  typeId         String
-  uploadedById   String
-  eventType      EventType @relation(fields: [typeId], references: [id], onDelete: Restrict)
-  uploadedBy     User      @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  id                 String      @id @default(cuid())
+  title              String?
+  caption            String
+  eventDate          DateTime
+  location           String?
+  eventStatus        EventStatus @default(upcoming)
+  approvedForGallery Boolean     @default(false)
+  mediaType          MediaType
+  mediaUrl           String
+  mediaDriveFileId   String
+  originalName       String
+  uploadedByName     String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  typeId             String
+  costCenterId       String?
+  cityId             String?
+  uploadedById       String
+  eventType          EventType   @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  costCenter         CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
+  city               City?       @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  uploadedBy         User        @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  notifications      DonorNotification[]
 
   @@index([typeId])
   @@index([uploadedById])
   @@index([eventDate])
+  @@index([costCenterId])
+  @@index([cityId])
+  @@index([eventStatus])
+  @@index([approvedForGallery])
 }

@@ -7,6 +7,12 @@ const authRoutes = require("./routes/auth.routes");
 const aiRoutes = require("./routes/ai.routes");
 const eventTypeRoutes = require("./routes/types.routes");
 const eventRoutes = require("./routes/events.routes");
+const cityRoutes = require("./routes/cities.routes");
+const costCenterRoutes = require("./routes/costCenters.routes");
+const donorRoutes = require("./routes/donors.routes");
+const calendarRoutes = require("./routes/calendar.routes");
+const notificationRoutes = require("./routes/notifications.routes");
+const adminRoutes = require("./routes/admin.routes");
 
 const app = express();
 
@@ -27,6 +33,12 @@ app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/types", eventTypeRoutes);
 app.use("/api/events", eventRoutes);
+app.use("/api/cities", cityRoutes);
+app.use("/api/cost-centers", costCenterRoutes);
+app.use("/api/donors", donorRoutes);
+app.use("/api/calendar", calendarRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

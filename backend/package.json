@@ -8,7 +8,11 @@
     "start": "node src/server.js",
     "prisma:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:seed": "node src/scripts/seed.js"
+    "db:seed": "node src/scripts/seed.js",
+    "db:seed:dummy": "node src/scripts/seedDummyData.js",
+    "db:seed:all": "node src/scripts/seed.js && node src/scripts/seedDummyData.js",
+    "db:backfill:event-cities": "node src/scripts/backfillEventCityIds.js",
+    "finance:inspect": "node src/scripts/inspectFinanceCostCenter.js"
   },
   "keywords": [],
   "author": "",

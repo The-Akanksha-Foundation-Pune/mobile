@@ -8,9 +8,9 @@ function resolvePublicBaseUrl(req) {
     return fromEnv.replace(/\/$/, "");
   }
 
-  const host = req.get("host");
+  const host = req?.get?.("host");
   if (host && host !== "undefined") {
-    const proto = req.protocol === "https" ? "https" : "http";
+    const proto = req?.protocol === "https" ? "https" : "http";
     return `${proto}://${host}`.replace(/\/$/, "");
   }
 

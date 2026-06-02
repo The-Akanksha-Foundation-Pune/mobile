@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Platform } from "react-native";
 import { makeRedirectUri } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
@@ -13,8 +13,17 @@ import { useAppRoute } from "./hooks/useAppRoute";
 import { HomeScreen } from "./screens/HomeScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
-import { fetchCurrentUser, fetchEventBootstrap, signInWithGoogle, uploadEvent } from "./services/api";
-import type { EventItem, EventType, MediaMode, SelectedMedia, User } from "./types/app";
+import { citiesWithCostCenters } from "./config/cities";
+import {
+  fetchCities,
+  fetchCostCenters,
+  fetchCurrentUser,
+  fetchEventBootstrap,
+  signInWithGoogle,
+  uploadEvent,
+} from "./services/api";
+import { getDummyCostCenters, USE_DUMMY_HUB_DATA } from "./data/dummyHubData";
+import type { City, CostCenter, EventType, MediaMode, SelectedMedia, User } from "./types/app";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -24,9 +33,20 @@ const PLATFORM_CLIENT_ID = Platform.select({
   ios: GOOGLE_IOS_CLIENT_ID,
   default: GOOGLE_WEB_CLIENT_ID,
 });
+const GOOGLE_ANDROID_REDIRECT_SCHEME = `com.googleusercontent.apps.${GOOGLE_ANDROID_CLIENT_ID.replace(
+  ".apps.googleusercontent.com",
+  ""
+)}`;
+const GOOGLE_IOS_REDIRECT_SCHEME = `com.googleusercontent.apps.${GOOGLE_IOS_CLIENT_ID.replace(
+  ".apps.googleusercontent.com",
+  ""
+)}`;
 const NATIVE_REDIRECT_URI = makeRedirectUri({
-  scheme: "captureakanksha",
-  path: "oauthredirect",
+  native: Platform.select({
+    android: `${GOOGLE_ANDROID_REDIRECT_SCHEME}:/oauthredirect`,
+    ios: `${GOOGLE_IOS_REDIRECT_SCHEME}:/oauthredirect`,
+    default: undefined,
+  }),
 });
 
 export default function App() {
@@ -35,18 +55,19 @@ export default function App() {
   const [isAuthBootstrapped, setIsAuthBootstrapped] = useState(Platform.OS !== "web");
   const { route, setRoute } = useAppRoute();
 
+  const [cities, setCities] = useState<City[]>([]);
+  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
-  const [events, setEvents] = useState<EventItem[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState("");
   const [eventTitle, setEventTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [eventDate, setEventDate] = useState(new Date().toISOString().slice(0, 10));
+  const [eventLocation, setEventLocation] = useState("");
   const [mediaType, setMediaType] = useState<MediaMode>("photo");
   const [media, setMedia] = useState<SelectedMedia>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    // Keep client IDs platform-specific so Android does not fall back to web client redirect behavior.
     clientId: PLATFORM_CLIENT_ID,
     webClientId: GOOGLE_WEB_CLIENT_ID,
     androidClientId: GOOGLE_ANDROID_CLIENT_ID,
@@ -55,33 +76,22 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (Platform.OS !== "web") {
-      return;
-    }
-
+    if (Platform.OS !== "web") return;
     try {
       const savedToken = window.localStorage.getItem(WEB_AUTH_TOKEN_KEY) || "";
-      if (savedToken) {
-        setToken(savedToken);
-      }
+      if (savedToken) setToken(savedToken);
     } catch (_error) {
-      // Ignore storage access issues and continue without a persisted session.
+      // Ignore storage access issues.
     } finally {
       setIsAuthBootstrapped(true);
     }
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== "web") {
-      return;
-    }
-
+    if (Platform.OS !== "web") return;
     try {
-      if (token) {
-        window.localStorage.setItem(WEB_AUTH_TOKEN_KEY, token);
-      } else {
-        window.localStorage.removeItem(WEB_AUTH_TOKEN_KEY);
-      }
+      if (token) window.localStorage.setItem(WEB_AUTH_TOKEN_KEY, token);
+      else window.localStorage.removeItem(WEB_AUTH_TOKEN_KEY);
     } catch (_error) {
       // Ignore storage write issues.
     }
@@ -90,9 +100,7 @@ export default function App() {
   useEffect(() => {
     if (response?.type === "success") {
       const idToken = response.params.id_token;
-      if (idToken) {
-        void handleGoogleLogin(idToken);
-      }
+      if (idToken) void handleGoogleLogin(idToken);
     }
     if (response?.type === "error") {
       const errorDescription =
@@ -105,26 +113,9 @@ export default function App() {
   }, [response]);
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
+    if (!token) return;
     void hydrateAuthenticatedSession();
   }, [token]);
-
-  const groupedEvents = useMemo(() => {
-    const grouped: Record<string, Record<string, EventItem[]>> = {};
-    for (const event of events) {
-      const typeLabel = event.eventTypeName || "Unknown";
-      if (!grouped[typeLabel]) {
-        grouped[typeLabel] = {};
-      }
-      if (!grouped[typeLabel][event.eventDate]) {
-        grouped[typeLabel][event.eventDate] = [];
-      }
-      grouped[typeLabel][event.eventDate].push(event);
-    }
-    return grouped;
-  }, [events]);
 
   async function handleGoogleLogin(idToken: string) {
     try {
@@ -139,17 +130,26 @@ export default function App() {
     }
   }
 
-  async function loadTypesAndEvents() {
-    try {
-      const bootstrap = await fetchEventBootstrap(token);
-      setEventTypes(bootstrap.eventTypes);
-      setEvents(bootstrap.events);
-
-      if (!selectedTypeId && bootstrap.eventTypes.length > 0) {
-        setSelectedTypeId(bootstrap.eventTypes[0].id);
-      }
-    } catch (error) {
-      Alert.alert("Data error", (error as Error).message);
+  async function loadSessionData() {
+    const bootstrap = await fetchEventBootstrap(token);
+    const centerList = USE_DUMMY_HUB_DATA ? getDummyCostCenters() : await fetchCostCenters(token);
+    const cityList = USE_DUMMY_HUB_DATA ? [] : await fetchCities(token);
+    setEventTypes(bootstrap.eventTypes);
+    setCostCenters(centerList);
+    setCities(
+      USE_DUMMY_HUB_DATA
+        ? citiesWithCostCenters(
+            [
+              { id: "dummy-city-mum", name: "Mumbai", sortOrder: 1, isActive: true },
+              { id: "dummy-city-pune", name: "Pune", sortOrder: 2, isActive: true },
+              { id: "dummy-city-ngp", name: "Nagpur", sortOrder: 3, isActive: true },
+            ],
+            centerList
+          )
+        : citiesWithCostCenters(cityList, centerList)
+    );
+    if (!selectedTypeId && bootstrap.eventTypes.length > 0) {
+      setSelectedTypeId(bootstrap.eventTypes[0].id);
     }
   }
 
@@ -157,8 +157,8 @@ export default function App() {
     try {
       const me = await fetchCurrentUser(token);
       setUser(me);
-      await loadTypesAndEvents();
-    } catch (error) {
+      await loadSessionData();
+    } catch (_error) {
       handleLogout();
       Alert.alert("Session expired", "Please sign in again.");
     }
@@ -182,10 +182,10 @@ export default function App() {
     }
   }
 
-  async function handleSubmitEvent() {
+  async function handleSubmitEvent(costCenterId: string, cityId?: string | null): Promise<boolean> {
     if (!selectedTypeId || !eventTitle.trim() || !caption.trim() || !eventDate || !media) {
       Alert.alert("Missing fields", "Title, type, date, caption and media are required.");
-      return;
+      return false;
     }
 
     try {
@@ -198,14 +198,23 @@ export default function App() {
         eventDate,
         mediaType,
         media,
+        costCenterId,
+        cityId: cityId || undefined,
+        location: eventLocation,
       });
       setEventTitle("");
       setCaption("");
+      setEventLocation("");
       setMedia(null);
-      await loadTypesAndEvents();
-      Alert.alert("Success", "Event uploaded successfully.");
+      await loadSessionData();
+      Alert.alert(
+        "Success",
+        "Event saved for this cost center. An admin can approve it and notify donors."
+      );
+      return true;
     } catch (error) {
       Alert.alert("Upload error", (error as Error).message);
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -214,12 +223,14 @@ export default function App() {
   function handleLogout() {
     setToken("");
     setUser(null);
-    setEvents([]);
+    setCities([]);
+    setCostCenters([]);
     setEventTypes([]);
     setSelectedTypeId("");
     setEventTitle("");
     setCaption("");
     setEventDate(new Date().toISOString().slice(0, 10));
+    setEventLocation("");
     setMediaType("photo");
     setMedia(null);
     setIsLoading(false);
@@ -256,12 +267,14 @@ export default function App() {
     <HomeScreen
       token={token}
       user={user}
+      cities={cities}
+      costCenters={costCenters}
       eventTypes={eventTypes}
-      groupedEvents={groupedEvents}
       selectedTypeId={selectedTypeId}
       eventTitle={eventTitle}
       caption={caption}
       eventDate={eventDate}
+      eventLocation={eventLocation}
       mediaType={mediaType}
       media={media}
       isLoading={isLoading}
@@ -271,6 +284,7 @@ export default function App() {
       onChangeEventDate={setEventDate}
       onChangeEventTitle={setEventTitle}
       onChangeCaption={setCaption}
+      onChangeEventLocation={setEventLocation}
       onCaptureMedia={handleCaptureFromCamera}
       onSaveEvent={handleSubmitEvent}
     />

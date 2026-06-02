@@ -9,6 +9,7 @@ const {
   mimeMatchesDeclaredMediaType,
 } = require("../lib/allowedMedia");
 const { resolvePublicBaseUrl } = require("../lib/publicApiBase");
+const { resolveMediaUrlForClient } = require("../lib/resolveMediaUrl");
 
 const router = express.Router();
 
@@ -32,13 +33,61 @@ const createEventSchema = z.object({
   typeId: z.string().min(1),
   eventDate: z.string().min(4),
   mediaType: z.enum(["photo", "video"]),
+  costCenterId: z.string().min(1),
+  cityId: z.string().min(1).optional(),
+  location: z.string().max(300).optional(),
+  eventStatus: z.enum(["upcoming", "ongoing", "complete"]).optional(),
 });
 
+function buildCityFilter(cityId) {
+  const id = String(cityId);
+  return {
+    OR: [{ cityId: id }, { costCenter: { cityId: id } }],
+  };
+}
+
+function serializeEvent(item, req) {
+  const cityName = item.city?.name || item.costCenter?.city?.name || "";
+  return {
+    id: item.id,
+    title: item.title || "",
+    caption: item.caption,
+    typeId: item.typeId,
+    eventTypeName: item.eventType?.name || "",
+    eventDate: item.eventDate.toISOString().slice(0, 10),
+    location: item.location || "",
+    eventStatus: item.eventStatus,
+    approvedForGallery: item.approvedForGallery,
+    costCenterId: item.costCenterId,
+    costCenterCode: item.costCenter?.code || "",
+    costCenterName: item.costCenter?.name || "",
+    cityId: item.cityId || item.costCenter?.cityId || null,
+    cityName,
+    mediaType: item.mediaType,
+    mediaUrl: resolveMediaUrlForClient(req, item.mediaUrl),
+    originalName: item.originalName,
+    uploadedBy: item.uploadedById,
+    uploadedByName: item.uploadedByName || item.uploadedBy?.name,
+    uploadedByEmail: item.uploadedBy?.email,
+    createdAt: item.createdAt,
+  };
+}
+
 router.get("/", requireAuth, async (req, res) => {
-  const { typeId, date } = req.query;
+  const { typeId, date, cityId, costCenterId, status, gallery } = req.query;
 
   const where = {
     ...(typeId ? { typeId: String(typeId) } : {}),
+    ...(costCenterId ? { costCenterId: String(costCenterId) } : {}),
+    ...(cityId && !costCenterId ? buildCityFilter(cityId) : {}),
+    ...(status ? { eventStatus: String(status) } : {}),
+    ...(gallery === "true"
+      ? {
+          approvedForGallery: true,
+          eventStatus: "complete",
+          ...(cityId && !costCenterId ? buildCityFilter(cityId) : {}),
+        }
+      : {}),
     ...(date
       ? {
           eventDate: {
@@ -51,30 +100,19 @@ router.get("/", requireAuth, async (req, res) => {
 
   const filtered = await prisma.event.findMany({
     where,
-    include: { eventType: true, uploadedBy: true },
+    include: {
+      eventType: true,
+      uploadedBy: true,
+      city: true,
+      costCenter: { include: { city: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
 
-  return res.json(
-    filtered.map((item) => ({
-      id: item.id,
-      title: item.title || "",
-      caption: item.caption,
-      typeId: item.typeId,
-      eventDate: item.eventDate.toISOString().slice(0, 10),
-      mediaType: item.mediaType,
-      mediaUrl: item.mediaUrl,
-      originalName: item.originalName,
-      uploadedBy: item.uploadedById,
-      uploadedByName: item.uploadedByName || item.uploadedBy.name,
-      uploadedByEmail: item.uploadedBy.email,
-      createdAt: item.createdAt,
-      eventTypeName: item.eventType.name,
-    }))
-  );
+  return res.json(filtered.map((item) => serializeEvent(item, req)));
 });
 
-router.get("/grouped", requireAuth, async (_req, res) => {
+router.get("/grouped", requireAuth, async (req, res) => {
   const allEvents = await prisma.event.findMany({
     include: { eventType: true, uploadedBy: true },
     orderBy: { createdAt: "desc" },
@@ -95,7 +133,7 @@ router.get("/grouped", requireAuth, async (_req, res) => {
       title: event.title || "",
       caption: event.caption,
       mediaType: event.mediaType,
-      mediaUrl: event.mediaUrl,
+      mediaUrl: resolveMediaUrlForClient(req, event.mediaUrl),
       originalName: event.originalName,
       uploadedBy: event.uploadedById,
       uploadedByName: event.uploadedByName || event.uploadedBy.name,
@@ -168,12 +206,35 @@ router.post("/", requireAuth, (req, res, next) => {
     throw err;
   }
 
+  const costCenter = await prisma.costCenter.findUnique({
+    where: { id: parsed.data.costCenterId },
+  });
+  if (!costCenter) {
+    return res.status(404).json({ message: "Selected cost center does not exist." });
+  }
+  if (!costCenter.cityId) {
+    return res.status(400).json({
+      message: "Selected cost center has no mapped city. Only Finance cost centers with a valid city are allowed.",
+    });
+  }
+
+  if (parsed.data.cityId) {
+    const city = await prisma.city.findUnique({ where: { id: parsed.data.cityId } });
+    if (!city) {
+      return res.status(404).json({ message: "Selected city does not exist." });
+    }
+  }
+
   const nextEvent = await prisma.event.create({
     data: {
       title: parsed.data.title.trim(),
       caption: parsed.data.caption.trim(),
       typeId: parsed.data.typeId,
+      costCenterId: parsed.data.costCenterId,
       eventDate: new Date(`${parsed.data.eventDate}T00:00:00.000Z`),
+      cityId: parsed.data.cityId || costCenter.cityId || null,
+      location: parsed.data.location?.trim() || null,
+      eventStatus: parsed.data.eventStatus || "upcoming",
       mediaType: parsed.data.mediaType,
       mediaUrl: uploadedFile.mediaUrl,
       mediaDriveFileId: uploadedFile.fileId,
@@ -181,21 +242,15 @@ router.post("/", requireAuth, (req, res, next) => {
       uploadedById: req.user.id,
       uploadedByName: req.user.name,
     },
+    include: {
+      eventType: true,
+      city: true,
+      costCenter: { include: { city: true } },
+      uploadedBy: true,
+    },
   });
 
-  return res.status(201).json({
-    id: nextEvent.id,
-    title: nextEvent.title || "",
-    caption: nextEvent.caption,
-    typeId: nextEvent.typeId,
-    eventDate: nextEvent.eventDate.toISOString().slice(0, 10),
-    mediaType: nextEvent.mediaType,
-    mediaUrl: nextEvent.mediaUrl,
-    originalName: nextEvent.originalName,
-    uploadedBy: nextEvent.uploadedById,
-    uploadedByName: nextEvent.uploadedByName,
-    createdAt: nextEvent.createdAt,
-  });
+  return res.status(201).json(serializeEvent(nextEvent, req));
 });
 
 module.exports = router;

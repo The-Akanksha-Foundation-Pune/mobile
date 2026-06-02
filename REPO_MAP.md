@@ -8,68 +8,73 @@ This file is the living map of the codebase structure and module relationships.
 captureAkanksha/
 ├── backend/                  # Node.js + Express API
 │   ├── prisma/
-│   │   └── schema.prisma     # MySQL Prisma models (User, EventType, Event with uploader-name snapshot)
+│   │   └── schema.prisma     # MySQL: CostCenter, Donor, Event+type+status, CalendarEntry, City
 │   ├── src/
 │   │   ├── app.js            # Express app wiring and route mounting
 │   │   ├── server.js         # Process entrypoint
 │   │   ├── lib/
-│   │   │   ├── prisma.js        # Prisma client singleton
-│   │   │   ├── allowedMedia.js  # MIME/extension allowlist for uploads + filenames
-│   │   │   └── publicApiBase.js # Resolve PUBLIC_API_BASE_URL vs Host vs 127.0.0.1 fallback
+│   │   │   ├── prisma.js
+│   │   │   ├── allowedMedia.js
+│   │   │   ├── publicApiBase.js   # PUBLIC_API_BASE_URL / Host for absolute links
+│   │   │   └── resolveMediaUrl.js # Rewrite loopback media URLs for client devices
 │   │   ├── middleware/
-│   │   │   └── auth.js       # JWT auth + role checks
+│   │   │   └── auth.js       # JWT auth + role checks (admin)
 │   │   ├── routes/
 │   │   │   ├── auth.routes.js
-│   │   │   ├── ai.routes.js       # Auth-protected Gemini description polish endpoint
-│   │   │   ├── events.routes.js
-│   │   │   └── types.routes.js
+│   │   │   ├── ai.routes.js
+│   │   │   ├── events.routes.js    # CRUD + filters (city, status, gallery)
+│   │   │   ├── types.routes.js
+│   │   │   ├── cities.routes.js        # City list + admin CRUD
+│   │   │   ├── costCenters.routes.js   # Cost center list + admin CRUD
+│   │   │   ├── donors.routes.js        # Donors per cost center (admin)
+│   │   │   ├── calendar.routes.js      # Calendar scoped by costCenterId
+│   │   │   ├── notifications.routes.js # Queue donor notifications
+│   │   │   └── admin.routes.js         # Moderation + notify donors per event
 │   │   ├── services/
-│   │   │   ├── drive.js           # Google Drive client + upload
-│   │   │   ├── localMediaStorage.js # Dev/disk saves under backend/uploads
-│   │   │   ├── mediaUpload.js     # MEDIA_STORAGE auto|google|local router
-│   │   │   └── googleAuth.js      # Google ID token verification
+│   │   │   ├── drive.js
+│   │   │   ├── localMediaStorage.js
+│   │   │   ├── mediaUpload.js
+│   │   │   └── googleAuth.js
+│   │   ├── constants/
+│   │   │   └── allowedCities.js  # Mumbai, Pune, Nagpur allowlist
 │   │   └── scripts/
-│   │       └── seed.js       # Seed event types
-│   ├── uploads/              # Local media files (gitignored; created at runtime)
+│   │       ├── seed.js                # Base seed: event types + cities
+│   │       ├── seedDummyData.js       # Preview dataset → LocalDB (CC, donors, events, calendar)
+│   │       └── backfillEventCityIds.js  # Set event.cityId from cost center when null
+│   ├── uploads/
 │   ├── package.json
 │   └── .env.example
-├── mobile/                   # Expo React Native app
-│   ├── App.tsx               # Thin entrypoint re-exporting src/App
-│   ├── index.ts              # App registration
-│   ├── app.json              # Expo config (logo used for app icon/adaptive/favicon; adaptive background set to black)
-│   ├── eas.json              # EAS cloud build profiles
+├── mobile/                   # Expo React Native app (BookMyShow-style flow)
+│   ├── App.tsx
+│   ├── index.ts
 │   ├── src/
-│   │   ├── App.tsx           # Root functional app orchestrator
-│   │   ├── config/
-│   │   │   └── constants.ts  # API and OAuth constants
+│   │   ├── App.tsx           # Auth + session bootstrap
+│   │   ├── config/constants.ts
+│   │   ├── config/cities.ts      # Allowed city filter (Mumbai, Pune, Nagpur)
+│   │   ├── data/
+│   │   │   ├── dummyHubData.ts   # Optional preview events/calendar per cost center (USE_DUMMY_HUB_DATA)
+│   │   │   └── dummyGalleryEvents.ts
+│   │   ├── theme/theme.ts    # Brand palette (BMS-inspired red + accent gold)
 │   │   ├── components/
-│   │   │   ├── AppButton.tsx   # Themed button with optional Ionicon
-│   │   │   ├── AppCard.tsx
-│   │   │   ├── FormField.tsx   # Themed text input field
-│   │   │   ├── ScreenHeader.tsx # Home header with contextual welcome text
-│   │   │   ├── SelectChip.tsx  # Themed chip selector with optional icon
-│   │   │   └── index.ts       # Barrel export for component imports
-│   │   ├── hooks/
-│   │   │   └── useAppRoute.ts
+│   │   │   ├── EventCalendar.tsx
+│   │   │   ├── EventPosterCard.tsx
+│   │   │   └── ...
 │   │   ├── screens/
-│   │   │   ├── HomeScreen.tsx  # Three-tab home (Add form + View/Likes feed + Profile/logout)
-│   │   │   ├── LoginScreen.tsx
-│   │   │   └── NotFoundScreen.tsx
-│   │   ├── services/
-│   │   │   └── api.ts        # Typed API client helpers (auth, events, AI polish via backend)
-│   │   ├── types/
-│   │   │   └── app.ts
+│   │   │   ├── CostCenterPickerScreen.tsx  # Cost centers grouped by city (hub entry)
+│   │   │   ├── EventsHubScreen.tsx    # Ongoing | Upcoming | CaptureAkanksha | Calendar
+│   │   │   ├── AddEventScreen.tsx
+│   │   │   ├── AdminScreen.tsx        # Admin-only moderation + calendar + cities
+│   │   │   ├── HomeScreen.tsx         # City picker → cost center picker → hub
+│   │   │   └── LoginScreen.tsx
+│   │   ├── services/api.ts
+│   │   ├── types/app.ts
 │   │   └── utils/
-│   │       └── routing.ts
-│   ├── tsconfig.json
+│   │       ├── costCenterGrouping.ts
+│   │       ├── eventGrouping.ts
+│   │       └── mediaUrl.ts         # Client-side loopback → API_BASE_URL rewrite
 │   └── package.json
-├── .cursor/
-│   └── rules/
-│       └── repo-map-maintenance.mdc
-├── package.json              # Root common dev/start scripts
-├── package-lock.json
+├── package.json
 ├── README.md
-├── .gitignore
 └── REPO_MAP.md
 ```
 
@@ -78,26 +83,32 @@ captureAkanksha/
 ```mermaid
 graph TD
   A[Mobile App: src/App.tsx] --> B[Backend API: app.js]
-  A --> A1[HomeScreen Tabs: Add | View]
-  A1 --> A2[Local Like State]
-  A --> K[Google OAuth Consent]
+  A --> CP[CityPickerScreen]
+  CP --> EH[EventsHubScreen]
+  EH --> O[Ongoing events API]
+  EH --> U[Upcoming events API]
+  EH --> G[Gallery events API]
+  EH --> CAL[Calendar API]
+  EH --> ADM[AdminScreen]
+  A --> ADD[AddEventScreen]
   B --> C[Auth Routes]
   B --> D[Event Type Routes]
   B --> E[Event Routes]
-  B --> X[AI Routes]
+  B --> CI[Cities Routes]
+  B --> CA[Calendar Routes]
+  B --> AD[Admin Routes]
   C --> F[JWT Middleware]
   D --> F
   E --> F
-  X --> F
-  C --> G[Google Token Verification Service]
-  C --> H[(MySQL DB via Prisma)]
+  CI --> F
+  CA --> F
+  AD --> F
+  C --> H[(MySQL via Prisma)]
   D --> H
   E --> H
-  E --> I[Media Upload: mediaUpload.js]
-  I --> I1[Drive Service]
-  I --> I2[Local Disk /media Static]
-  I1 --> J[(Google Drive Folder)]
-  I2 --> I3[(backend/uploads)]
+  CI --> H
+  CA --> H
+  AD --> H
 ```
 
 ## Application Knowledge Graph
@@ -106,120 +117,55 @@ graph TD
 graph LR
   subgraph Mobile["Mobile (Expo React Native)"]
     MApp["src/App.tsx"]
-    MLogin["screens/LoginScreen.tsx"]
-    MHome["screens/HomeScreen.tsx"]
+    MCity["CityPickerScreen"]
+    MHub["EventsHubScreen"]
+    MAdmin["AdminScreen"]
     MApi["services/api.ts"]
-    MPolish["polishDescription() via backend"]
-    MMedia["ImagePicker / FormData media upload"]
   end
 
   subgraph Backend["Backend (Express + Prisma)"]
-    BApp["src/app.js"]
-    BAuth["routes/auth.routes.js"]
-    BTypes["routes/types.routes.js"]
     BEvents["routes/events.routes.js"]
-    BAi["routes/ai.routes.js"]
-    BJwt["middleware/auth.js"]
-    BGoogle["services/googleAuth.js"]
-    BUpload["services/mediaUpload.js"]
-    BDrive["services/drive.js"]
-    BLocal["services/localMediaStorage.js"]
-    BStatic["/media static server"]
+    BCities["routes/cities.routes.js"]
+    BCal["routes/calendar.routes.js"]
+    BAdmin["routes/admin.routes.js"]
   end
 
   subgraph Data["Data Stores"]
-    DMySQL[("MySQL\nUser, EventType, Event")]
-    DUploads[("backend/uploads")]
-    DDrive[("Google Drive folder")]
+    DMySQL[("MySQL\nUser, EventType, City, CalendarEntry, Event")]
   end
 
-  MLogin -->|"Google OAuth"| BAuth
-  BAuth --> BGoogle
-  BAuth --> DMySQL
-  MApi -->|"Bearer JWT"| BJwt
-  BJwt --> BTypes
-  BJwt --> BEvents
-  BTypes --> DMySQL
-  MHome --> MMedia
-  MHome --> MPolish
-  MPolish -->|"POST /api/ai/polish-description"| BAi
-  BAi -->|"Server-side API key"| GAI["Google Gemini API"]
-  MMedia -->|"POST /api/events"| BEvents
-  BEvents --> BUpload
-  BUpload -->|"MEDIA_STORAGE=google"| BDrive
-  BUpload -->|"MEDIA_STORAGE=local or auto fallback"| BLocal
-  BDrive --> DDrive
-  BLocal --> DUploads
-  BStatic --> DUploads
+  MCity -->|"GET /api/cities"| BCities
+  MHub -->|"GET /api/events?status&cityId"| BEvents
+  MHub -->|"GET /api/events?status=complete"| BEvents
+  MHub -->|"GET /api/calendar"| BCal
+  MAdmin -->|"PATCH /api/admin/events"| BAdmin
+  MAdmin -->|"POST/PATCH/DELETE /api/calendar"| BCal
+  MAdmin -->|"POST /api/cities"| BCities
+  BCities --> DMySQL
+  BCal --> DMySQL
+  BAdmin --> DMySQL
   BEvents --> DMySQL
-  MHome -->|"renders mediaUrl"| BStatic
-```
-
-## Auth Knowledge Graph
-
-```mermaid
-graph TD
-  U[User] --> L[LoginScreen: Continue with Google]
-  L --> A[App.tsx promptAsync()]
-  A --> G[Google OAuth]
-  G --> R[Auth response with id_token]
-  R --> S[POST /api/auth/google]
-  S --> AR[auth.routes.js]
-  AR --> GS[googleAuth.verifyGoogleIdToken]
-  GS --> D[(MySQL User via Prisma upsert)]
-  AR --> J[JWT sign]
-  J --> T[Mobile token state]
-  T --> P[Authorization: Bearer token]
-  P --> M[requireAuth middleware]
-  M --> E[/api/events]
-  M --> TY[/api/types]
-```
-
-## Event Upload and View Graph
-
-```mermaid
-graph TD
-  H[HomeScreen Add Tab] --> C[Capture media via ImagePicker]
-  C --> F[FormData: caption, typeId, eventDate, mediaType, media]
-  F --> U[POST /api/events]
-  U --> ER[events.routes.js]
-  ER --> V[Validate payload + file + type existence]
-  V --> MU[mediaUpload.uploadEventMedia]
-  MU -->|MEDIA_STORAGE=google| DR[drive.uploadToGoogleDrive]
-  MU -->|MEDIA_STORAGE=local| LS[localMediaStorage.saveLocalMedia]
-  MU -->|MEDIA_STORAGE=auto + Drive configured| DR
-  MU -->|MEDIA_STORAGE=auto + Drive missing| LS
-  DR --> GD[(Google Drive folder)]
-  LS --> LD[(backend/uploads)]
-  LD --> MS[/media static route]
-  ER --> DB[(MySQL Event row)]
-  DB --> Q[GET /api/events]
-  Q --> HV[HomeScreen View Tab]
-  HV --> IM[Photo preview via mediaUrl]
-  HV --> LK[Local like toggle state]
 ```
 
 ## Data Flow Snapshot
 
-1. User lands on branded login (`mobile/src/screens/LoginScreen.tsx`) with top Akanksha logo and Google-only sign-in CTA.
-2. Mobile sends Google ID token to `/api/auth/google`.
-3. Backend verifies token, enforces allowed email domain, and upserts user in SQL.
-4. Backend returns JWT for API access.
-5. Mobile calls `/api/types` and `/api/events` with Bearer token.
-6. User captures photo/video and uploads to `/api/events`.
-7. Backend stores media via `mediaUpload.js`: `MEDIA_STORAGE=auto` uses Drive when service account + folder are valid, otherwise saves under `backend/uploads` and serves files at `GET /media/...`; `google` / `local` force one backend.
-8. In `Add` tab, mobile sends description to `/api/ai/polish-description`; backend calls Gemini with `GOOGLE_AI_API_KEY` and returns polished text.
-9. Mobile captures media and submits full event details (title, description/caption, type, date, mediaType, media file); backend stores title, caption, uploader user id, and uploader name snapshot on each Event.
-10. In `View` tab, mobile renders events grouped by type/date, shows creator + upload timestamp metadata per card, and supports client-side like toggles per event.
-11. In `Profile` tab, mobile shows user identity and quick stats, and the logout action lives here (not in the header/nav shortcut).
-12. Core mobile UI components (`AppButton`, `SelectChip`, `FormField`, `AppCard`, `ScreenHeader`) switch styling by system color scheme (light/dark) and expose icon-driven actions.
+1. User signs in with Google; backend returns JWT.
+2. Mobile loads cost centers (`GET /api/cost-centers`) synced from `Finance.costcenter` (only rows with a city that exists in `City` table).
+3. **Cost center picker**: user selects a cost center (each has registered donors).
+4. **Events hub** for that cost center (event **type** still applies per event):
+   - **Ongoing** / **Upcoming** / **CaptureAkanksha** / **Calendar** — all filtered by `costCenterId`
+   - CaptureAkanksha: `GET /api/events?cityId=&status=complete` (all completed events in the selected city, including via cost center), grouped by date and location; gallery-approved items show a badge
+5. Upload: `POST /api/events` requires `costCenterId` + `typeId`; optional `cityId` for venue.
+6. Media links: `GET /api/events` and `GET /api/events/grouped` rewrite loopback `mediaUrl` values via `resolveMediaUrl.js` (and mobile `utils/mediaUrl.ts` as a fallback).
+7. **Admin** can moderate events, approve gallery, **Notify donors** (`POST /api/admin/events/:id/notify-donors`), and manage calendar entries per cost center.
 
-## Current Gaps to Track
+## LocalDB dummy seed
 
-- Build/release credentials for EAS Android and iOS test builds still need account setup.
+- `npm run db:seed:dummy` — syncs `Finance.costcenter` → `CostCenter`, then seeds preview `Event` / `CalendarEntry` / `Donor` rows keyed by Finance `costcenter` name (not `ccCode`)
+- `npm run db:seed:all` — runs base `seed.js` then `seedDummyData.js`
+- Only Finance rows with a city that exists in `City` are synced; seed events reference names like `ASE Mumbai`, `ANWEMS`, `Coaches - Pune`
 
 ## Map Update Protocol
 
 - Update this file when adding/removing routes, services, models, storage targets, or external integrations.
 - Keep both graph views aligned: `Runtime Relationship Graph` and `Application Knowledge Graph`.
-- Reflect new media/auth/data paths in `Data Flow Snapshot` immediately in the same PR/session.

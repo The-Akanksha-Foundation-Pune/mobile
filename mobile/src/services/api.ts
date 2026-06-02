@@ -1,5 +1,16 @@
 import { API_BASE_URL } from "../config/constants";
-import type { EventItem, EventType, MediaMode, SelectedMedia, User } from "../types/app";
+import { resolveEventMediaUrl } from "../utils/mediaUrl";
+import type {
+  CalendarEntry,
+  City,
+  CostCenter,
+  EventItem,
+  EventStatus,
+  EventType,
+  MediaMode,
+  SelectedMedia,
+  User,
+} from "../types/app";
 
 type AuthResponse = {
   token: string;
@@ -24,6 +35,21 @@ function getApiBaseUrl(): string {
   return API_BASE_URL;
 }
 
+function authHeaders(token: string, json = false) {
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(json ? { "Content-Type": "application/json" } : {}),
+  };
+}
+
+async function parseJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.message || fallbackMessage);
+  }
+  return data as T;
+}
+
 export async function signInWithGoogle(idToken: string): Promise<AuthResponse> {
   const baseUrl = getApiBaseUrl();
   const response = await fetch(`${baseUrl}/api/auth/google`, {
@@ -34,10 +60,6 @@ export async function signInWithGoogle(idToken: string): Promise<AuthResponse> {
 
   const data = await response.json();
   if (!response.ok) {
-    console.error("Auth request failed", {
-      status: response.status,
-      data,
-    });
     throw new Error(data.message || "Login failed.");
   }
   return data;
@@ -46,14 +68,9 @@ export async function signInWithGoogle(idToken: string): Promise<AuthResponse> {
 export async function fetchCurrentUser(token: string): Promise<User> {
   const baseUrl = getApiBaseUrl();
   const response = await fetch(`${baseUrl}/api/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(token),
   });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.message || "Session is invalid.");
-  }
-  return data;
+  return parseJson<User>(response, "Session is invalid.");
 }
 
 export async function fetchEventBootstrap(token: string): Promise<{
@@ -62,12 +79,8 @@ export async function fetchEventBootstrap(token: string): Promise<{
 }> {
   const baseUrl = getApiBaseUrl();
   const [typesRes, eventsRes] = await Promise.all([
-    fetch(`${baseUrl}/api/types`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }),
-    fetch(`${baseUrl}/api/events`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }),
+    fetch(`${baseUrl}/api/types`, { headers: authHeaders(token) }),
+    fetch(`${baseUrl}/api/events`, { headers: authHeaders(token) }),
   ]);
 
   const typeData = await typesRes.json();
@@ -83,6 +96,180 @@ export async function fetchEventBootstrap(token: string): Promise<{
   };
 }
 
+export async function fetchCities(token: string): Promise<City[]> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/cities`, {
+    headers: authHeaders(token),
+  });
+  return parseJson<City[]>(response, "Failed to load cities.");
+}
+
+export async function fetchCostCenters(token: string): Promise<CostCenter[]> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/cost-centers`, {
+    headers: authHeaders(token),
+  });
+  return parseJson<CostCenter[]>(response, "Failed to load cost centers.");
+}
+
+export async function fetchEvents(args: {
+  token: string;
+  costCenterId?: string;
+  cityId?: string;
+  status?: EventStatus;
+  gallery?: boolean;
+  date?: string;
+}): Promise<EventItem[]> {
+  const baseUrl = getApiBaseUrl();
+  const params = new URLSearchParams();
+  if (args.costCenterId) params.set("costCenterId", args.costCenterId);
+  if (args.cityId) params.set("cityId", args.cityId);
+  if (args.status) params.set("status", args.status);
+  if (args.gallery) params.set("gallery", "true");
+  if (args.date) params.set("date", args.date);
+
+  const response = await fetch(`${baseUrl}/api/events?${params.toString()}`, {
+    headers: authHeaders(args.token),
+  });
+  const events = await parseJson<EventItem[]>(response, "Failed to load events.");
+  return events.map((event) => ({
+    ...event,
+    mediaUrl: resolveEventMediaUrl(event.mediaUrl),
+  }));
+}
+
+export async function fetchCalendarEntries(args: {
+  token: string;
+  costCenterId: string;
+  month?: string;
+}): Promise<CalendarEntry[]> {
+  const baseUrl = getApiBaseUrl();
+  const params = new URLSearchParams({ costCenterId: args.costCenterId });
+  if (args.month) params.set("month", args.month);
+
+  const response = await fetch(`${baseUrl}/api/calendar?${params.toString()}`, {
+    headers: authHeaders(args.token),
+  });
+  return parseJson<CalendarEntry[]>(response, "Failed to load calendar.");
+}
+
+export async function fetchAdminEvents(token: string): Promise<EventItem[]> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/admin/events`, {
+    headers: authHeaders(token),
+  });
+  return parseJson<EventItem[]>(response, "Failed to load admin events.");
+}
+
+export async function notifyEventDonors(token: string, eventId: string): Promise<{ notifiedCount: number }> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/admin/events/${eventId}/notify-donors`, {
+    method: "POST",
+    headers: authHeaders(token, true),
+  });
+  return parseJson<{ notifiedCount: number }>(response, "Failed to notify donors.");
+}
+
+export async function moderateEvent(args: {
+  token: string;
+  eventId: string;
+  eventStatus?: EventStatus;
+  approvedForGallery?: boolean;
+  costCenterId?: string;
+  cityId?: string | null;
+  location?: string | null;
+}): Promise<EventItem> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/admin/events/${args.eventId}`, {
+    method: "PATCH",
+    headers: authHeaders(args.token, true),
+    body: JSON.stringify({
+      ...(args.eventStatus !== undefined ? { eventStatus: args.eventStatus } : {}),
+      ...(args.approvedForGallery !== undefined ? { approvedForGallery: args.approvedForGallery } : {}),
+      ...(args.cityId !== undefined ? { cityId: args.cityId } : {}),
+      ...(args.location !== undefined ? { location: args.location } : {}),
+    }),
+  });
+  return parseJson<EventItem>(response, "Failed to update event.");
+}
+
+export async function fetchAllCostCentersAdmin(token: string): Promise<CostCenter[]> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/cost-centers/all`, {
+    headers: authHeaders(token),
+  });
+  return parseJson<CostCenter[]>(response, "Failed to load cost centers.");
+}
+
+export async function fetchAllCitiesAdmin(token: string): Promise<City[]> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/cities/all`, {
+    headers: authHeaders(token),
+  });
+  return parseJson<City[]>(response, "Failed to load cities.");
+}
+
+export async function createCityAdmin(args: {
+  token: string;
+  name: string;
+  state?: string;
+}): Promise<City> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/cities`, {
+    method: "POST",
+    headers: authHeaders(args.token, true),
+    body: JSON.stringify({
+      name: args.name,
+      ...(args.state !== undefined ? { state: args.state } : {}),
+    }),
+  });
+  return parseJson<City>(response, "Failed to create city.");
+}
+
+export async function fetchAdminCalendar(token: string, cityId?: string): Promise<CalendarEntry[]> {
+  const baseUrl = getApiBaseUrl();
+  const params = cityId ? `?cityId=${encodeURIComponent(cityId)}` : "";
+  const response = await fetch(`${baseUrl}/api/calendar/all${params}`, {
+    headers: authHeaders(token),
+  });
+  return parseJson<CalendarEntry[]>(response, "Failed to load admin calendar.");
+}
+
+export async function upsertCalendarEntry(args: {
+  token: string;
+  payload: {
+    title: string;
+    description?: string;
+    eventDate: string;
+    endDate?: string | null;
+    location?: string;
+    costCenterId: string;
+    cityId?: string | null;
+    isPublished?: boolean;
+  };
+  entryId?: string;
+}): Promise<CalendarEntry> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(
+    args.entryId ? `${baseUrl}/api/calendar/${args.entryId}` : `${baseUrl}/api/calendar`,
+    {
+      method: args.entryId ? "PATCH" : "POST",
+      headers: authHeaders(args.token, true),
+      body: JSON.stringify(args.payload),
+    }
+  );
+  return parseJson<CalendarEntry>(response, "Failed to save calendar entry.");
+}
+
+export async function deleteCalendarEntry(token: string, entryId: string): Promise<void> {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/calendar/${entryId}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  await parseJson(response, "Failed to delete calendar entry.");
+}
+
 export async function uploadEvent(args: {
   token: string;
   title: string;
@@ -91,9 +278,12 @@ export async function uploadEvent(args: {
   eventDate: string;
   mediaType: MediaMode;
   media: SelectedMedia;
+  costCenterId: string;
+  cityId?: string;
+  location?: string;
 }): Promise<void> {
   const baseUrl = getApiBaseUrl();
-  const { token, title, caption, typeId, eventDate, mediaType, media } = args;
+  const { token, title, caption, typeId, eventDate, mediaType, media, costCenterId, cityId, location } = args;
   if (!media) {
     throw new Error("Media is required.");
   }
@@ -104,6 +294,10 @@ export async function uploadEvent(args: {
   formData.append("typeId", typeId);
   formData.append("eventDate", eventDate);
   formData.append("mediaType", mediaType);
+  formData.append("costCenterId", costCenterId);
+  if (cityId) formData.append("cityId", cityId);
+  if (location?.trim()) formData.append("location", location.trim());
+
   const mediaFile = (media as { file?: File }).file;
   if (typeof window !== "undefined" && mediaFile instanceof File) {
     formData.append("media", mediaFile, mediaFile.name);
@@ -117,9 +311,7 @@ export async function uploadEvent(args: {
 
   const response = await fetch(`${baseUrl}/api/events`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: authHeaders(token),
     body: formData,
   });
 
@@ -138,10 +330,7 @@ export async function polishEventDescription(args: { token: string; description:
   const baseUrl = getApiBaseUrl();
   const response = await fetch(`${baseUrl}/api/ai/polish-description`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers: authHeaders(token, true),
     body: JSON.stringify({ description: text }),
   });
 
