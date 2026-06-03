@@ -4,18 +4,18 @@
   "version": "1.0.0",
   "scripts": {
     "dev:backend": "npm --prefix backend run dev",
-    "dev:frontend": "npm --prefix mobile run start:lan",
-    "dev:all": "concurrently -n backend,frontend -c blue,green \"npm --prefix backend run dev\" \"npm --prefix mobile run start:lan\"",
-    "dev:web-android:full": "concurrently -n backend,frontend -c blue,green \"npm --prefix backend run dev\" \"npm --prefix mobile run start:lan\"",
-    "dev:web": "npm --prefix mobile run web",
-    "dev:web:only": "npm --prefix mobile run web",
-    "dev:android": "npm --prefix mobile run android",
-    "dev:android:only": "npm --prefix mobile run android",
-    "dev:android:lan": "npm --prefix mobile run android:lan",
-    "dev:ios": "npm --prefix mobile run ios",
-    "dev:web:full": "concurrently -n backend,web -c blue,green \"npm --prefix backend run dev\" \"npm --prefix mobile run web\"",
-    "dev:android:full": "concurrently -n backend,android -c blue,green \"npm --prefix backend run dev\" \"npm --prefix mobile run android\"",
-    "dev:ios:full": "concurrently -n backend,ios -c blue,green \"npm --prefix backend run dev\" \"npm --prefix mobile run ios\""
+    "dev:frontend": "npm --prefix client run start:lan",
+    "dev:all": "concurrently -n backend,frontend -c blue,green \"npm --prefix backend run dev\" \"npm --prefix client run start:lan\"",
+    "dev:web-android:full": "concurrently -n backend,frontend -c blue,green \"npm --prefix backend run dev\" \"npm --prefix client run start:lan\"",
+    "dev:web": "npm --prefix client run web",
+    "dev:web:only": "npm --prefix client run web",
+    "dev:android": "npm --prefix client run android",
+    "dev:android:only": "npm --prefix client run android",
+    "dev:android:lan": "npm --prefix client run android:lan",
+    "dev:ios": "npm --prefix client run ios",
+    "dev:web:full": "concurrently -n backend,web -c blue,green \"npm --prefix backend run dev\" \"npm --prefix client run web\"",
+    "dev:android:full": "concurrently -n backend,android -c blue,green \"npm --prefix backend run dev\" \"npm --prefix client run android\"",
+    "dev:ios:full": "concurrently -n backend,ios -c blue,green \"npm --prefix backend run dev\" \"npm --prefix client run ios\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
