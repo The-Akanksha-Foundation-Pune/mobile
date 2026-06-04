@@ -44,8 +44,13 @@ captureAkanksha/
 │   ├── uploads/
 │   ├── package.json
 │   └── .env.example
-├── mobile/                   # Expo React Native app (BookMyShow-style flow)
+├── client/                   # Expo React Native app (BookMyShow-style flow)
 │   ├── App.tsx
+│   ├── app.json
+│   ├── metro.config.js       # Extends expo/metro-config (expo-doctor)
+│   ├── eas.json
+│   ├── android/              # Native project (expo prebuild / run:android)
+│   ├── ios/
 │   ├── index.ts
 │   ├── src/
 │   │   ├── App.tsx           # Auth + session bootstrap

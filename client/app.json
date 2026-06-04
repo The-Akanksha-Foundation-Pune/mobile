@@ -53,6 +53,15 @@
           "androidClientId": "629988134724-9obom6r0hf1vobci72grn67nmckoum42.apps.googleusercontent.com",
           "androidUrlScheme": "com.googleusercontent.apps.629988134724-9obom6r0hf1vobci72grn67nmckoum42"
         }
+      ],
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
       ]
     ],
     "owner": "akankshadevteam"

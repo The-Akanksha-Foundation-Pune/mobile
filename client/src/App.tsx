@@ -201,8 +201,32 @@ export default function App() {
           return;
         }
       }
-      Alert.alert("Google sign-in error", (error as Error).message || "Sign-in failed.");
+      const message = (error as Error).message || "Sign-in failed.";
+      if (message.includes("DEVELOPER_ERROR")) {
+        Alert.alert(
+          "Google sign-in setup",
+          "Android OAuth is misconfigured. In Google Cloud Console, open the Android OAuth client for package org.akanksha.capture and add your app SHA-1 fingerprints (run npm run google:setup in client/ for exact values). Then rebuild and reinstall the app."
+        );
+        return;
+      }
+      Alert.alert("Google sign-in error", message);
     }
+  }
+
+  async function handleGoogleSignInPress() {
+    if (Platform.OS === "web") {
+      if (!request) {
+        Alert.alert("Login not ready", "Google sign-in is still initializing. Please try again.");
+        return;
+      }
+      try {
+        await promptAsync();
+      } catch (error) {
+        Alert.alert("Google sign-in error", (error as Error).message);
+      }
+      return;
+    }
+    await handleNativeGoogleSignIn();
   }
 
   async function loadSessionData() {
@@ -331,17 +355,7 @@ export default function App() {
         isLoading={isLoading}
         canStartLogin
         onLoginPress={() => {
-          if (Platform.OS !== "web") {
-            void handleNativeGoogleSignIn();
-            return;
-          }
-          if (!request) {
-            Alert.alert("Login not ready", "Google sign-in is still initializing. Please try again.");
-            return;
-          }
-          void promptAsync().catch((error) => {
-            Alert.alert("Google sign-in error", (error as Error).message);
-          });
+          void handleGoogleSignInPress();
         }}
       />
     );

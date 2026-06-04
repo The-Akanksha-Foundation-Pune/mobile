@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import { API_BASE_URL } from "../config/constants";
 import { Platform } from "react-native";
 import { resolveEventMediaUrl } from "../utils/mediaUrl";
@@ -18,11 +19,29 @@ type AuthResponse = {
   user: User;
 };
 
-function getApiBaseUrl(): string {
-  // Android emulators cannot access host loopback via 127.0.0.1/localhost.
-  // Route local API calls to the host machine through 10.0.2.2.
-  if (Platform.OS === "android") {
-    return API_BASE_URL.replace("://127.0.0.1", "://10.0.2.2").replace("://localhost", "://10.0.2.2");
+const LOOPBACK_API_PATTERN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+
+function isLoopbackApiUrl(url: string): boolean {
+  return LOOPBACK_API_PATTERN.test(url);
+}
+
+function rewriteLoopbackForAndroidEmulator(url: string): string {
+  return url.replace("://127.0.0.1", "://10.0.2.2").replace("://localhost", "://10.0.2.2");
+}
+
+export function getApiBaseUrl(): string {
+  const isAndroidEmulator = Platform.OS === "android" && !Constants.isDevice;
+
+  // Android emulators cannot reach the dev machine via 127.0.0.1; use 10.0.2.2 instead.
+  if (isAndroidEmulator && isLoopbackApiUrl(API_BASE_URL)) {
+    return rewriteLoopbackForAndroidEmulator(API_BASE_URL);
+  }
+
+  // Physical phones cannot reach a laptop backend at 127.0.0.1/localhost.
+  if (Platform.OS !== "web" && Constants.isDevice && isLoopbackApiUrl(API_BASE_URL)) {
+    throw new Error(
+      "Backend URL is set to 127.0.0.1, which does not work on a physical phone. Set EXPO_PUBLIC_API_BASE_URL to your computer's LAN IP (e.g. http://192.168.1.5:4000), start the backend, then rebuild the app."
+    );
   }
 
   if (typeof window === "undefined" || !window.location?.hostname) {
@@ -31,15 +50,24 @@ function getApiBaseUrl(): string {
 
   const webHost = window.location.hostname;
   const isLocalWebHost = webHost === "localhost" || webHost === "127.0.0.1";
-  const isLoopbackApi = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(API_BASE_URL);
 
-  if (!isLocalWebHost && isLoopbackApi) {
+  if (!isLocalWebHost && isLoopbackApiUrl(API_BASE_URL)) {
     throw new Error(
       "This hosted web build is using a local API URL (127.0.0.1). Set EXPO_PUBLIC_API_BASE_URL to a public backend URL, or run the app locally with the backend."
     );
   }
 
   return API_BASE_URL;
+}
+
+function formatNetworkError(error: unknown, baseUrl: string): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("Network request failed") || message.includes("Failed to fetch")) {
+    return new Error(
+      `Cannot reach the backend at ${baseUrl}. Ensure the backend is running, your phone is on the same Wi‑Fi, and EXPO_PUBLIC_API_BASE_URL uses your computer's LAN IP—not 127.0.0.1.`
+    );
+  }
+  return error instanceof Error ? error : new Error(message);
 }
 
 function authHeaders(token: string, json = false) {
@@ -59,17 +87,21 @@ async function parseJson<T>(response: Response, fallbackMessage: string): Promis
 
 export async function signInWithGoogle(idToken: string): Promise<AuthResponse> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/auth/google`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken }),
-  });
+  try {
+    const response = await fetch(`${baseUrl}/api/auth/google`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.message || "Login failed.");
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Login failed.");
+    }
+    return data;
+  } catch (error) {
+    throw formatNetworkError(error, baseUrl);
   }
-  return data;
 }
 
 export async function fetchCurrentUser(token: string): Promise<User> {

@@ -74,19 +74,27 @@ Backend runs on `http://localhost:4000`.
 
 ## Mobile Setup
 
-1. Go to mobile folder:
-   - `cd mobile`
-2. Update API URL in `App.tsx`:
-   - Set `API_BASE_URL` to your machine IP, for example `http://192.168.1.10:4000`
-3. Configure Google OAuth client IDs in `App.tsx`:
-   - `GOOGLE_WEB_CLIENT_ID`
-   - `GOOGLE_ANDROID_CLIENT_ID`
-   - `GOOGLE_IOS_CLIENT_ID`
-4. Start app:
-   - `npm start`
-5. Run on device/emulator:
-   - Android: `npm run android`
-   - iOS: `npm run ios`
+1. Go to client folder:
+   - `cd client`
+2. Update API URL in `client/.env`:
+   - Physical device / EAS APK: `EXPO_PUBLIC_API_BASE_URL=http://YOUR_LAN_IP:4000` (not `127.0.0.1`)
+   - Run `cd client && npm run api:setup` for your LAN IP and full steps
+   - Verify on phone browser: `http://YOUR_LAN_IP:4000/health` must return `{"ok":true,...}` before rebuilding
+3. Configure Google OAuth client IDs in `client/src/config/constants.ts` and `client/app.json` (plugin block).
+4. **Android Google sign-in (`DEVELOPER_ERROR` fix):**
+   - Package name must be `org.akanksha.capture` (see `client/app.json`).
+   - Print all required fingerprints and steps: `cd client && npm run google:setup`
+   - In [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → your **Android** OAuth client → add **both**:
+     - **Local debug** SHA-1 (`npm run android:fingerprints`) — for `npx expo run:android`
+     - **EAS build** SHA-1 (`npx eas credentials -p android`) — for preview APK installs from `npm run build:android`
+   - Rebuild and reinstall after credential changes: `cd client && npx expo run:android` or `npm run build:android` (not Expo Go alone).
+5. Health check before EAS build:
+   - `cd client && npm run doctor` (should report 18/18 checks passed)
+6. Start app from repo root:
+   - `npm run dev:web-android:full`
+7. Run on device/emulator:
+   - Android: `npm run dev:android` or press `a` in Expo
+   - iOS: `npm run dev:ios`
 
 ## Cloud Test Builds (EAS)
 
