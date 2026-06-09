@@ -221,7 +221,8 @@ export default function App() {
         return;
       }
       try {
-        await promptAsync();
+        // Full-page redirect avoids OAuth popup COOP/window.close issues on hosted web.
+        await promptAsync({ windowName: "_self" });
       } catch (error) {
         Alert.alert("Google sign-in error", (error as Error).message);
       }

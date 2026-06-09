@@ -18,6 +18,7 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/health", "destination": "/api" },
+    { "source": "/health/ready", "destination": "/api" },
     { "source": "/media/(.*)", "destination": "/api" },
     { "source": "/:path*", "destination": "/" }
   ],

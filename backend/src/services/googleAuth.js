@@ -38,5 +38,6 @@ async function verifyGoogleIdToken(idToken) {
 }
 
 module.exports = {
+  getAllowedGoogleClientIds,
   verifyGoogleIdToken,
 };

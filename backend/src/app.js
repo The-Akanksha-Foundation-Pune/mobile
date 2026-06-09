@@ -13,6 +13,8 @@ const donorRoutes = require("./routes/donors.routes");
 const calendarRoutes = require("./routes/calendar.routes");
 const notificationRoutes = require("./routes/notifications.routes");
 const adminRoutes = require("./routes/admin.routes");
+const prisma = require("./lib/prisma");
+const { getAllowedGoogleClientIds } = require("./services/googleAuth");
 
 const app = express();
 
@@ -30,6 +32,33 @@ app.use(express.urlencoded({ extended: true }));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "capture-akanksha-backend" });
+});
+
+app.get("/health/ready", async (_req, res) => {
+  const googleClientIds = getAllowedGoogleClientIds();
+  const checks = {
+    googleOAuthConfigured: googleClientIds.length > 0,
+    databaseUrlConfigured: Boolean(process.env.DATABASE_URL),
+    jwtSecretConfigured: Boolean(
+      process.env.JWT_SECRET && process.env.JWT_SECRET !== "replace_with_long_random_secret"
+    ),
+  };
+
+  let database = "ok";
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch (_error) {
+    database = "error";
+  }
+
+  const ok =
+    checks.googleOAuthConfigured && checks.databaseUrlConfigured && database === "ok";
+
+  res.status(ok ? 200 : 503).json({
+    ok,
+    service: "capture-akanksha-backend",
+    checks: { ...checks, database },
+  });
 });
 
 const uploadsDir = path.join(__dirname, "..", "uploads");
