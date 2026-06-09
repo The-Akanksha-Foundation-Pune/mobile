@@ -70,9 +70,22 @@ router.post("/google", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Google authentication error:", error);
-    const debugMessage =
-      process.env.NODE_ENV !== "production" ? ` ${String(error?.message || "")}` : "";
+    const message = String(error?.message || error || "");
+    console.error("Google authentication error:", message);
+
+    if (message.includes("No Google OAuth client IDs configured")) {
+      return res.status(503).json({ message: "Server Google auth is not configured." });
+    }
+
+    const isDbError =
+      error?.name === "PrismaClientInitializationError" ||
+      /^P\d{4}/.test(String(error?.code || "")) ||
+      /connect|database|prisma/i.test(message);
+    if (isDbError) {
+      return res.status(503).json({ message: "Database unavailable. Check server DATABASE_URL." });
+    }
+
+    const debugMessage = process.env.NODE_ENV !== "production" ? ` ${message}` : "";
     return res.status(401).json({ message: `Google authentication failed.${debugMessage}`.trim() });
   }
 });

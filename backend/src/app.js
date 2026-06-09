@@ -16,7 +16,13 @@ const adminRoutes = require("./routes/admin.routes");
 
 const app = express();
 
-app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+    // OAuth popup on web needs same-origin-allow-popups so window.close() works after Google redirect.
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+  })
+);
 app.use(cors());
 app.use(morgan("dev"));
 app.use(express.json());

@@ -50,6 +50,7 @@ const NATIVE_REDIRECT_URI = makeRedirectUri({
     default: undefined,
   }),
 });
+const WEB_REDIRECT_URI = makeRedirectUri({ preferLocalhost: false });
 
 export default function App() {
   const [token, setToken] = useState("");
@@ -71,11 +72,11 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    clientId: PLATFORM_CLIENT_ID,
+    clientId: Platform.OS === "web" ? GOOGLE_WEB_CLIENT_ID : PLATFORM_CLIENT_ID,
     webClientId: GOOGLE_WEB_CLIENT_ID,
     androidClientId: GOOGLE_ANDROID_CLIENT_ID,
     iosClientId: GOOGLE_IOS_CLIENT_ID,
-    redirectUri: Platform.OS === "web" ? undefined : NATIVE_REDIRECT_URI,
+    redirectUri: Platform.OS === "web" ? WEB_REDIRECT_URI : NATIVE_REDIRECT_URI,
   });
 
   useEffect(() => {

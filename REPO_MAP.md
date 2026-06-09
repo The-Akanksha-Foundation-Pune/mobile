@@ -13,6 +13,7 @@ captureAkanksha/
 │   │   ├── app.js            # Express app wiring and route mounting
 │   │   ├── server.js         # Process entrypoint
 │   │   ├── lib/
+│   │   │   ├── env.js            # Builds DATABASE_URL from DB_* when unset
 │   │   │   ├── prisma.js
 │   │   │   ├── allowedMedia.js
 │   │   │   ├── publicApiBase.js   # PUBLIC_API_BASE_URL / Host for absolute links
