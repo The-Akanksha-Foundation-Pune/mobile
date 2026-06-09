@@ -79,9 +79,16 @@ Backend runs on `http://localhost:4000`.
 1. Go to client folder:
    - `cd client`
 2. Update API URL in `client/.env`:
-   - Physical device / EAS APK: `EXPO_PUBLIC_API_BASE_URL=http://YOUR_LAN_IP:4000` (not `127.0.0.1`)
-   - Run `cd client && npm run api:setup` for your LAN IP and full steps
-   - Verify on phone browser: `http://YOUR_LAN_IP:4000/health` must return `{"ok":true,...}` before rebuilding
+   - **Same Wi‑Fi (LAN):** `EXPO_PUBLIC_API_BASE_URL=http://YOUR_LAN_IP:4000` (not `127.0.0.1`)
+     - Run `cd client && npm run api:setup` for your LAN IP and full steps
+     - Verify on phone browser: `http://YOUR_LAN_IP:4000/health` must return `{"ok":true,...}` before rebuilding
+   - **Remote testers (other city / mobile data):** use ngrok — run `npm run api:ngrok` for full steps:
+     1. `ngrok config add-authtoken YOUR_TOKEN` (one-time, from [ngrok dashboard](https://dashboard.ngrok.com/get-started/your-authtoken))
+     2. `npm run dev:backend`
+     3. `npm run tunnel:ngrok` (separate terminal)
+     4. `npm run api:sync-ngrok` → updates `client/.env` and `backend/.env` (`PUBLIC_API_BASE_URL`)
+     5. Open `https://….ngrok-free.app/health` on the phone, then rebuild the APK
+     - Keep backend + ngrok running on your machine while testers use the app
 3. Configure Google OAuth client IDs in `client/src/config/constants.ts` and `client/app.json` (plugin block).
 4. **Android Google sign-in (`DEVELOPER_ERROR` fix):**
    - Package name must be `org.akanksha.capture` (see `client/app.json`).
@@ -97,6 +104,39 @@ Backend runs on `http://localhost:4000`.
 7. Run on device/emulator:
    - Android: `npm run dev:android` or press `a` in Expo
    - iOS: `npm run dev:ios`
+
+## Vercel Web Deploy (testing)
+
+Two options:
+
+### A) Web only (easiest — backend stays local or ngrok)
+
+1. Push the repo to GitHub and import it in [Vercel](https://vercel.com).
+2. Set **Root Directory** to `client`.
+3. Vercel reads `client/vercel.json` (`build:web` → `dist/`).
+4. In Vercel → **Environment Variables**, set:
+   - `EXPO_PUBLIC_API_BASE_URL` = your public API (e.g. `https://….ngrok-free.app` from `npm run api:sync-ngrok`, or another hosted API).
+5. Redeploy after changing env vars (they are baked in at build time).
+6. In Google Cloud Console → OAuth **Web** client → add your Vercel URL to **Authorized JavaScript origins** (and redirect URIs if prompted).
+
+Keep `npm run dev:backend` (+ ngrok if remote) running while testers use the hosted web app.
+
+### B) Web + API on Vercel (full stack)
+
+1. Import the repo with **Root Directory** = repository root (uses root `vercel.json` + `api/index.js`).
+2. Set backend env vars in Vercel (same names as `backend/.env.example`):
+   - `DATABASE_URL` — must be a **cloud MySQL** reachable from Vercel (not `localhost`).
+   - `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `ALLOWED_EMAIL_DOMAIN`, Google Drive / AI keys as needed.
+   - `MEDIA_STORAGE=google` (local `uploads/` does not persist on serverless).
+   - `PUBLIC_API_BASE_URL=https://YOUR-PROJECT.vercel.app`
+3. Set client env:
+   - `EXPO_PUBLIC_API_BASE_URL=https://YOUR-PROJECT.vercel.app`
+4. After first deploy, run migrations/seed against the cloud DB from your machine (`cd backend && npm run db:push && npm run db:seed`).
+5. Add the Vercel URL to Google OAuth **Authorized JavaScript origins**.
+
+Local check before deploy: `npm run vercel-build` (from repo root).
+
+CLI: `npx vercel` (preview) or `npx vercel --prod`.
 
 ## Cloud Test Builds (EAS)
 

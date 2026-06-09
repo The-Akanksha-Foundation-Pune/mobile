@@ -60,12 +60,83 @@ export function getApiBaseUrl(): string {
   return API_BASE_URL;
 }
 
+function isNgrokApiBase(url: string): boolean {
+  try {
+    return new URL(url).hostname.includes("ngrok");
+  } catch {
+    return false;
+  }
+}
+
+/** ngrok free tier returns an HTML interstitial unless this header is sent. */
+function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  if (isNgrokApiBase(url)) {
+    headers.set("ngrok-skip-browser-warning", "69420");
+  }
+  return fetch(url, { ...init, headers });
+}
+
+function isNonJsonResponseError(message: string): boolean {
+  return /json parse error|unexpected character|unexpected token/i.test(message);
+}
+
+async function readJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const text = await response.text();
+  if (!text.trim()) {
+    throw new Error(fallbackMessage);
+  }
+  try {
+    const data = JSON.parse(text) as T;
+    if (!response.ok) {
+      throw new Error((data as { message?: string })?.message || fallbackMessage);
+    }
+    return data;
+  } catch (error) {
+    if (error instanceof Error && error.message !== fallbackMessage && !isNonJsonResponseError(error.message)) {
+      throw error;
+    }
+    if (error instanceof SyntaxError || isNonJsonResponseError(String(error))) {
+      const preview = text.trim().slice(0, 80);
+      if (/ngrok|offline|too many requests/i.test(text)) {
+        throw new Error(
+          "Backend tunnel is offline or ngrok blocked the request. On your Mac run: npm run dev:backend and npm run tunnel:ngrok, then verify /health on the phone."
+        );
+      }
+      throw new Error(
+        `Backend returned non-JSON (HTTP ${response.status}). ${preview ? `Response: ${preview}` : fallbackMessage}`
+      );
+    }
+    throw error;
+  }
+}
+
+function rethrowApiError(error: unknown, baseUrl: string): never {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isNonJsonResponseError(message)) {
+    if (isNgrokApiBase(baseUrl)) {
+      throw new Error(
+        "Backend tunnel is offline or ngrok returned a warning page instead of JSON. Keep the backend and ngrok running on your Mac, open /health on the phone, then reinstall the latest APK."
+      );
+    }
+    throw new Error(`Backend returned non-JSON. Open ${baseUrl}/health in a browser to verify.`);
+  }
+  throw formatNetworkError(error, baseUrl);
+}
+
 function formatNetworkError(error: unknown, baseUrl: string): Error {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("Network request failed") || message.includes("Failed to fetch")) {
-    return new Error(
-      `Cannot reach the backend at ${baseUrl}. Ensure the backend is running, your phone is on the same Wi‑Fi, and EXPO_PUBLIC_API_BASE_URL uses your computer's LAN IP—not 127.0.0.1.`
+    const isNgrok = isNgrokApiBase(baseUrl);
+    const isLan = /^https?:\/\/192\.168\.|^https?:\/\/10\.|^https?:\/\/172\.(1[6-9]|2\d|3[01])\./i.test(
+      baseUrl
     );
+    const hint = isNgrok
+      ? "Ensure the backend and ngrok tunnel are running on the host machine, then open /health in a browser. If the ngrok URL changed, run npm run api:sync-ngrok and reinstall the app."
+      : isLan
+        ? "Ensure the backend is running, your phone is on the same Wi‑Fi, and EXPO_PUBLIC_API_BASE_URL uses your computer's LAN IP—not 127.0.0.1."
+        : "Ensure the backend is reachable at this URL (try /health in a browser) and EXPO_PUBLIC_API_BASE_URL is not 127.0.0.1 on a physical device.";
+    return new Error(`Cannot reach the backend at ${baseUrl}. ${hint}`);
   }
   return error instanceof Error ? error : new Error(message);
 }
@@ -78,35 +149,27 @@ function authHeaders(token: string, json = false) {
 }
 
 async function parseJson<T>(response: Response, fallbackMessage: string): Promise<T> {
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.message || fallbackMessage);
-  }
-  return data as T;
+  return readJsonResponse<T>(response, fallbackMessage);
 }
 
 export async function signInWithGoogle(idToken: string): Promise<AuthResponse> {
   const baseUrl = getApiBaseUrl();
   try {
-    const response = await fetch(`${baseUrl}/api/auth/google`, {
+    const response = await apiFetch(`${baseUrl}/api/auth/google`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ idToken }),
     });
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || "Login failed.");
-    }
-    return data;
+    return readJsonResponse<AuthResponse>(response, "Login failed.");
   } catch (error) {
-    throw formatNetworkError(error, baseUrl);
+    rethrowApiError(error, baseUrl);
   }
 }
 
 export async function fetchCurrentUser(token: string): Promise<User> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/auth/me`, {
+  const response = await apiFetch(`${baseUrl}/api/auth/me`, {
     headers: authHeaders(token),
   });
   return parseJson<User>(response, "Session is invalid.");
@@ -118,8 +181,8 @@ export async function fetchEventBootstrap(token: string): Promise<{
 }> {
   const baseUrl = getApiBaseUrl();
   const [typesRes, eventsRes] = await Promise.all([
-    fetch(`${baseUrl}/api/types`, { headers: authHeaders(token) }),
-    fetch(`${baseUrl}/api/events`, { headers: authHeaders(token) }),
+    apiFetch(`${baseUrl}/api/types`, { headers: authHeaders(token) }),
+    apiFetch(`${baseUrl}/api/events`, { headers: authHeaders(token) }),
   ]);
 
   const typeData = await typesRes.json();
@@ -137,7 +200,7 @@ export async function fetchEventBootstrap(token: string): Promise<{
 
 export async function fetchCities(token: string): Promise<City[]> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/cities`, {
+  const response = await apiFetch(`${baseUrl}/api/cities`, {
     headers: authHeaders(token),
   });
   return parseJson<City[]>(response, "Failed to load cities.");
@@ -145,7 +208,7 @@ export async function fetchCities(token: string): Promise<City[]> {
 
 export async function fetchCostCenters(token: string): Promise<CostCenter[]> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/cost-centers`, {
+  const response = await apiFetch(`${baseUrl}/api/cost-centers`, {
     headers: authHeaders(token),
   });
   return parseJson<CostCenter[]>(response, "Failed to load cost centers.");
@@ -167,7 +230,7 @@ export async function fetchEvents(args: {
   if (args.gallery) params.set("gallery", "true");
   if (args.date) params.set("date", args.date);
 
-  const response = await fetch(`${baseUrl}/api/events?${params.toString()}`, {
+  const response = await apiFetch(`${baseUrl}/api/events?${params.toString()}`, {
     headers: authHeaders(args.token),
   });
   const events = await parseJson<EventItem[]>(response, "Failed to load events.");
@@ -186,7 +249,7 @@ export async function fetchCalendarEntries(args: {
   const params = new URLSearchParams({ costCenterId: args.costCenterId });
   if (args.month) params.set("month", args.month);
 
-  const response = await fetch(`${baseUrl}/api/calendar?${params.toString()}`, {
+  const response = await apiFetch(`${baseUrl}/api/calendar?${params.toString()}`, {
     headers: authHeaders(args.token),
   });
   return parseJson<CalendarEntry[]>(response, "Failed to load calendar.");
@@ -194,7 +257,7 @@ export async function fetchCalendarEntries(args: {
 
 export async function fetchAdminEvents(token: string): Promise<EventItem[]> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/admin/events`, {
+  const response = await apiFetch(`${baseUrl}/api/admin/events`, {
     headers: authHeaders(token),
   });
   return parseJson<EventItem[]>(response, "Failed to load admin events.");
@@ -202,7 +265,7 @@ export async function fetchAdminEvents(token: string): Promise<EventItem[]> {
 
 export async function notifyEventDonors(token: string, eventId: string): Promise<{ notifiedCount: number }> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/admin/events/${eventId}/notify-donors`, {
+  const response = await apiFetch(`${baseUrl}/api/admin/events/${eventId}/notify-donors`, {
     method: "POST",
     headers: authHeaders(token, true),
   });
@@ -219,7 +282,7 @@ export async function moderateEvent(args: {
   location?: string | null;
 }): Promise<EventItem> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/admin/events/${args.eventId}`, {
+  const response = await apiFetch(`${baseUrl}/api/admin/events/${args.eventId}`, {
     method: "PATCH",
     headers: authHeaders(args.token, true),
     body: JSON.stringify({
@@ -234,7 +297,7 @@ export async function moderateEvent(args: {
 
 export async function fetchAllCostCentersAdmin(token: string): Promise<CostCenter[]> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/cost-centers/all`, {
+  const response = await apiFetch(`${baseUrl}/api/cost-centers/all`, {
     headers: authHeaders(token),
   });
   return parseJson<CostCenter[]>(response, "Failed to load cost centers.");
@@ -242,7 +305,7 @@ export async function fetchAllCostCentersAdmin(token: string): Promise<CostCente
 
 export async function fetchAllCitiesAdmin(token: string): Promise<City[]> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/cities/all`, {
+  const response = await apiFetch(`${baseUrl}/api/cities/all`, {
     headers: authHeaders(token),
   });
   return parseJson<City[]>(response, "Failed to load cities.");
@@ -254,7 +317,7 @@ export async function createCityAdmin(args: {
   state?: string;
 }): Promise<City> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/cities`, {
+  const response = await apiFetch(`${baseUrl}/api/cities`, {
     method: "POST",
     headers: authHeaders(args.token, true),
     body: JSON.stringify({
@@ -268,7 +331,7 @@ export async function createCityAdmin(args: {
 export async function fetchAdminCalendar(token: string, cityId?: string): Promise<CalendarEntry[]> {
   const baseUrl = getApiBaseUrl();
   const params = cityId ? `?cityId=${encodeURIComponent(cityId)}` : "";
-  const response = await fetch(`${baseUrl}/api/calendar/all${params}`, {
+  const response = await apiFetch(`${baseUrl}/api/calendar/all${params}`, {
     headers: authHeaders(token),
   });
   return parseJson<CalendarEntry[]>(response, "Failed to load admin calendar.");
@@ -289,7 +352,7 @@ export async function upsertCalendarEntry(args: {
   entryId?: string;
 }): Promise<CalendarEntry> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(
+  const response = await apiFetch(
     args.entryId ? `${baseUrl}/api/calendar/${args.entryId}` : `${baseUrl}/api/calendar`,
     {
       method: args.entryId ? "PATCH" : "POST",
@@ -302,7 +365,7 @@ export async function upsertCalendarEntry(args: {
 
 export async function deleteCalendarEntry(token: string, entryId: string): Promise<void> {
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/calendar/${entryId}`, {
+  const response = await apiFetch(`${baseUrl}/api/calendar/${entryId}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
@@ -348,7 +411,7 @@ export async function uploadEvent(args: {
     } as unknown as Blob);
   }
 
-  const response = await fetch(`${baseUrl}/api/events`, {
+  const response = await apiFetch(`${baseUrl}/api/events`, {
     method: "POST",
     headers: authHeaders(token),
     body: formData,
@@ -381,7 +444,7 @@ export async function polishEventDescription(args: {
     throw new Error("Add a description before polishing.");
   }
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}/api/ai/polish-description`, {
+  const response = await apiFetch(`${baseUrl}/api/ai/polish-description`, {
     method: "POST",
     headers: authHeaders(token, true),
     body: JSON.stringify({ description: text, ...context }),

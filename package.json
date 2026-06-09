@@ -15,7 +15,17 @@
     "dev:ios": "npm --prefix client run ios",
     "dev:web:full": "concurrently -n backend,web -c blue,green \"npm --prefix backend run dev\" \"npm --prefix client run web\"",
     "dev:android:full": "concurrently -n backend,android -c blue,green \"npm --prefix backend run dev\" \"npm --prefix client run android\"",
-    "dev:ios:full": "concurrently -n backend,ios -c blue,green \"npm --prefix backend run dev\" \"npm --prefix client run ios\""
+    "dev:ios:full": "concurrently -n backend,ios -c blue,green \"npm --prefix backend run dev\" \"npm --prefix client run ios\"",
+    "tunnel:ngrok": "ngrok http 4000 --log=stdout",
+    "tunnel:start": "node client/scripts/start-ngrok-and-sync.mjs",
+    "api:ngrok": "npm --prefix client run api:ngrok",
+    "api:sync-ngrok": "npm --prefix client run api:sync-ngrok",
+    "ngrok:auth": "npm --prefix client run ngrok:auth",
+    "dev:remote-api": "concurrently -n backend,ngrok -c blue,magenta \"npm --prefix backend run dev\" \"ngrok http 4000 --log=stdout\"",
+    "dev:remote-stack": "concurrently -n backend,ngrok -c blue,magenta \"npm --prefix backend run dev\" \"ngrok http 4000 --log=stdout\"",
+    "dev:remote-stack:web": "concurrently -n backend,ngrok,web -c blue,magenta,green \"npm --prefix backend run dev\" \"ngrok http 4000 --log=stdout\" \"npm --prefix client run web\"",
+    "build:web": "npm --prefix client run build:web",
+    "vercel-build": "npm --prefix backend run prisma:generate && npm --prefix client run build:web"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

@@ -78,8 +78,16 @@ captureAkanksha/
 │   │       ├── eventGrouping.ts
 │   │       ├── locationCity.ts       # City bounds, sort cities/events by detected city
 │   │       └── mediaUrl.ts         # Client-side loopback → API_BASE_URL rewrite
-│   └── package.json
-├── package.json
+│   ├── scripts/
+│   │   ├── print-api-setup.mjs
+│   │   ├── print-ngrok-setup.mjs   # npm run api:ngrok
+│   │   └── sync-ngrok-api-url.mjs  # npm run api:sync-ngrok → client + backend .env
+│   ├── vercel.json           # Frontend-only Vercel (Root Directory = client)
+│   └── package.json            # build:web → expo export --platform web → dist/
+├── api/
+│   └── index.js              # Vercel serverless entry → backend/src/app.js
+├── vercel.json               # Full-stack Vercel: web export + API rewrites
+├── package.json              # tunnel:ngrok, vercel-build, build:web
 ├── README.md
 └── REPO_MAP.md
 ```

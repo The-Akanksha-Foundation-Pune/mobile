@@ -7,4 +7,6 @@ backend/prisma/dev.db
 backend/prisma/dev.db-journal
 mobile/.expo
 mobile/dist
+client/dist
+client/.expo
 *.log
