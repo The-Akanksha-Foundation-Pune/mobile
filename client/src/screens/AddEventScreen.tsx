@@ -77,6 +77,8 @@ export function AddEventScreen(props: AddEventScreenProps) {
     return () => clearTimeout(timeout);
   }, [polishCooldownUntil]);
 
+  const selectedEventTypeName = eventTypes.find((type) => type.id === selectedTypeId)?.name;
+
   async function handlePolishDescription() {
     if (isPolishCooldownActive) {
       const waitSeconds = Math.max(1, Math.ceil((polishCooldownUntil - Date.now()) / 1000));
@@ -85,7 +87,19 @@ export function AddEventScreen(props: AddEventScreenProps) {
     }
     try {
       setIsPolishing(true);
-      const polished = await polishEventDescription({ token, description: caption });
+      const polished = await polishEventDescription({
+        token,
+        description: caption,
+        context: {
+          title: eventTitle.trim() || undefined,
+          cityName: city.name,
+          costCenterName: costCenter.name,
+          costCenterCode: costCenter.code,
+          eventTypeName: selectedEventTypeName,
+          location: location.trim() || undefined,
+          eventDate: eventDate || undefined,
+        },
+      });
       onChangeCaption(polished);
     } catch (error) {
       const message = (error as Error).message;

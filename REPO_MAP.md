@@ -21,7 +21,7 @@ captureAkanksha/
 │   │   │   └── auth.js       # JWT auth + role checks (admin)
 │   │   ├── routes/
 │   │   │   ├── auth.routes.js
-│   │   │   ├── ai.routes.js
+│   │   │   ├── ai.routes.js        # POST /polish-description → Gemini (GOOGLE_AI_API_KEY)
 │   │   │   ├── events.routes.js    # CRUD + filters (city, status, gallery)
 │   │   │   ├── types.routes.js
 │   │   │   ├── cities.routes.js        # City list + admin CRUD
@@ -97,7 +97,10 @@ graph TD
   EH --> CAL[Calendar API]
   EH --> ADM[AdminScreen]
   A --> ADD[AddEventScreen]
+  ADD --> AI[AI Routes: polish-description]
+  AI --> GEM[Google Gemini API]
   B --> C[Auth Routes]
+  B --> AI
   B --> D[Event Type Routes]
   B --> E[Event Routes]
   B --> CI[Cities Routes]

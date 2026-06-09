@@ -60,6 +60,8 @@ Backend runs on `http://localhost:4000`.
 - `JWT_SECRET`
 - `GOOGLE_CLIENT_ID` (Google OAuth Web Client ID used for token verification)
 - `ALLOWED_EMAIL_DOMAIN` (default `akanksha.org`)
+- `GOOGLE_AI_API_KEY` (Google AI Studio key for Gemini — powers **Polish** on event descriptions in Add Event)
+- `GOOGLE_AI_MODEL` (optional, e.g. `gemini-2.5-flash`; defaults to `gemini-2.5-flash` then `gemini-2.5-pro`)
 - `GOOGLE_DRIVE_FOLDER_ID`
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL`
 - `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`

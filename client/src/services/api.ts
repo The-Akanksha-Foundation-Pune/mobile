@@ -360,8 +360,22 @@ export async function uploadEvent(args: {
   }
 }
 
-export async function polishEventDescription(args: { token: string; description: string }): Promise<string> {
-  const { token, description } = args;
+export type PolishEventDescriptionContext = {
+  title?: string;
+  cityName?: string;
+  costCenterName?: string;
+  costCenterCode?: string;
+  eventTypeName?: string;
+  location?: string;
+  eventDate?: string;
+};
+
+export async function polishEventDescription(args: {
+  token: string;
+  description: string;
+  context?: PolishEventDescriptionContext;
+}): Promise<string> {
+  const { token, description, context } = args;
   const text = description.trim();
   if (!text) {
     throw new Error("Add a description before polishing.");
@@ -370,7 +384,7 @@ export async function polishEventDescription(args: { token: string; description:
   const response = await fetch(`${baseUrl}/api/ai/polish-description`, {
     method: "POST",
     headers: authHeaders(token, true),
-    body: JSON.stringify({ description: text }),
+    body: JSON.stringify({ description: text, ...context }),
   });
 
   const data = await response.json();

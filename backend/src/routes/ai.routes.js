@@ -6,7 +6,41 @@ const router = express.Router();
 
 const polishSchema = z.object({
   description: z.string().min(1),
+  title: z.string().optional(),
+  cityName: z.string().optional(),
+  costCenterName: z.string().optional(),
+  costCenterCode: z.string().optional(),
+  eventTypeName: z.string().optional(),
+  location: z.string().optional(),
+  eventDate: z.string().optional(),
 });
+
+function buildPolishPrompt(description, context) {
+  const contextLines = [
+    context.title && `Event title: ${context.title}`,
+    context.cityName && `City: ${context.cityName}`,
+    context.costCenterName &&
+      `Cost center: ${context.costCenterName}${context.costCenterCode ? ` (${context.costCenterCode})` : ""}`,
+    context.eventTypeName && `Event type: ${context.eventTypeName}`,
+    context.eventDate && `Event date: ${context.eventDate}`,
+    context.location && `Location: ${context.location}`,
+  ].filter(Boolean);
+
+  const contextBlock =
+    contextLines.length > 0
+      ? `Use this event context when polishing. Keep names, places, and dates accurate.\n${contextLines.join("\n")}\n\n`
+      : "";
+
+  return `${contextBlock}Polish this event description in clear, concise, professional English for an Akanksha Foundation school event report. Keep the original meaning and facts. Return only the polished description text.\n\nDescription:\n${description}`;
+}
+
+function getGeminiModels() {
+  const configured = process.env.GOOGLE_AI_MODEL?.trim();
+  if (configured) {
+    return [configured, "gemini-2.0-flash", "gemini-2.5-flash"];
+  }
+  return ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"];
+}
 
 function fallbackPolish(description) {
   const cleaned = description.replace(/\s+/g, " ").trim();
@@ -42,7 +76,7 @@ function parseJsonSafely(text) {
   }
 }
 
-async function callGeminiPolish(description) {
+async function callGeminiPolish(description, context = {}) {
   const apiKey = process.env.GOOGLE_AI_API_KEY;
   if (!apiKey) {
     const error = new Error("GOOGLE_AI_API_KEY is not configured on the backend.");
@@ -55,7 +89,7 @@ async function callGeminiPolish(description) {
       {
         parts: [
           {
-            text: `Polish this event description in clear, concise, professional English. Keep the original meaning and facts. Return only the polished text.\n\nDescription:\n${description}`,
+            text: buildPolishPrompt(description, context),
           },
         ],
       },
@@ -63,11 +97,11 @@ async function callGeminiPolish(description) {
     generationConfig: {
       temperature: 0.3,
       topP: 0.9,
-      maxOutputTokens: 250,
+      maxOutputTokens: 400,
     },
   };
 
-  const models = ["gemini-2.5-flash", "gemini-2.5-pro"];
+  const models = getGeminiModels();
   let lastError = "Failed to polish description.";
 
   for (const model of models) {
@@ -128,13 +162,26 @@ router.post("/polish-description", requireAuth, async (req, res) => {
     return res.status(400).json({ message: "Description is required." });
   }
 
+  const { description, title, cityName, costCenterName, costCenterCode, eventTypeName, location, eventDate } =
+    parsed.data;
+
+  const context = {
+    title: title?.trim(),
+    cityName: cityName?.trim(),
+    costCenterName: costCenterName?.trim(),
+    costCenterCode: costCenterCode?.trim(),
+    eventTypeName: eventTypeName?.trim(),
+    location: location?.trim(),
+    eventDate: eventDate?.trim(),
+  };
+
   try {
-    const polished = await callGeminiPolish(parsed.data.description.trim());
+    const polished = await callGeminiPolish(description.trim(), context);
     return res.json({ polished });
   } catch (error) {
     const statusCode = Number(error?.statusCode) || 500;
     if (statusCode === 429) {
-      const polished = fallbackPolish(parsed.data.description);
+      const polished = fallbackPolish(description);
       return res.json({
         polished,
         fallback: true,
