@@ -167,7 +167,7 @@ graph LR
 
 ## Data Flow Snapshot
 
-1. User signs in with Google; backend returns JWT.
+1. User signs in with Google; web `_self` redirect may leave `#id_token` in the URL — `App.tsx` parses/clears the hash and exchanges the token with `POST /api/auth/google`; backend returns JWT.
 2. Mobile loads cost centers (`GET /api/cost-centers`) synced from `Finance.costcenter` (only rows with a city that exists in `City` table).
 3. **Cost center picker**: user selects a cost center (each has registered donors).
 4. **Events hub** for that cost center (event **type** still applies per event):

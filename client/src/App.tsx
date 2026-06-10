@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { makeRedirectUri } from "expo-auth-session";
@@ -57,6 +57,19 @@ function getWebOAuthRedirectUri(): string {
   return process.env.EXPO_PUBLIC_WEB_REDIRECT_URI || makeRedirectUri({ preferLocalhost: false });
 }
 
+function parseWebOAuthIdToken(): string | null {
+  if (typeof window === "undefined" || !window.location.hash) return null;
+  const hash = window.location.hash.startsWith("#")
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  return new URLSearchParams(hash).get("id_token");
+}
+
+function clearWebOAuthHash(): void {
+  if (typeof window === "undefined" || !window.location.hash) return;
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+}
+
 export default function App() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
@@ -76,6 +89,7 @@ export default function App() {
   const [media, setMedia] = useState<SelectedMedia>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const oauthExchangeStartedRef = useRef(false);
 
   const webRedirectUri = useMemo(
     () => (Platform.OS === "web" ? getWebOAuthRedirectUri() : ""),
@@ -110,10 +124,10 @@ export default function App() {
         if (Platform.OS === "web") {
           const savedToken = window.localStorage.getItem(WEB_AUTH_TOKEN_KEY) || "";
           if (savedToken) setToken(savedToken);
-          return;
+        } else {
+          const savedToken = (await AsyncStorage.getItem(WEB_AUTH_TOKEN_KEY)) || "";
+          if (savedToken) setToken(savedToken);
         }
-        const savedToken = (await AsyncStorage.getItem(WEB_AUTH_TOKEN_KEY)) || "";
-        if (savedToken) setToken(savedToken);
       } catch (_error) {
         // Ignore storage access issues.
       } finally {
@@ -146,6 +160,7 @@ export default function App() {
 
   useEffect(() => {
     if (response?.type === "success") {
+      if (oauthExchangeStartedRef.current) return;
       const idToken = response.params.id_token;
       if (!idToken) {
         const hint =
@@ -153,12 +168,16 @@ export default function App() {
             ? ` Add redirect URI in Google Console: ${webRedirectUri}`
             : "";
         setLoginError(`Google did not return an ID token.${hint}`);
+        if (Platform.OS === "web") clearWebOAuthHash();
         return;
       }
+      oauthExchangeStartedRef.current = true;
+      if (Platform.OS === "web") clearWebOAuthHash();
       setLoginError("");
       void handleGoogleLogin(idToken);
     }
     if (response?.type === "error") {
+      if (Platform.OS === "web") clearWebOAuthHash();
       const errorDescription =
         response.error?.description || response.error?.message || "Google auth request failed.";
       setLoginError(errorDescription);
@@ -167,12 +186,24 @@ export default function App() {
       }
     }
     if (response?.type === "dismiss" || response?.type === "cancel") {
+      if (Platform.OS === "web") clearWebOAuthHash();
       setLoginError("Google sign-in cancelled. Please try again.");
       if (Platform.OS !== "web") {
         Alert.alert("Google sign-in cancelled", "Please try again to continue.");
       }
     }
   }, [response, webRedirectUri]);
+
+  // Full-page OAuth redirect (_self) can return before expo-auth-session reads the hash.
+  useEffect(() => {
+    if (Platform.OS !== "web" || !isAuthBootstrapped || oauthExchangeStartedRef.current) return;
+    const idToken = parseWebOAuthIdToken();
+    if (!idToken) return;
+    oauthExchangeStartedRef.current = true;
+    clearWebOAuthHash();
+    setLoginError("");
+    void handleGoogleLogin(idToken);
+  }, [isAuthBootstrapped]);
 
   useEffect(() => {
     if (!token) return;
@@ -299,7 +330,11 @@ export default function App() {
       await loadSessionData();
     } catch (_error) {
       handleLogout();
-      Alert.alert("Session expired", "Please sign in again.");
+      if (Platform.OS === "web") {
+        setLoginError("Session expired. Please sign in again.");
+      } else {
+        Alert.alert("Session expired", "Please sign in again.");
+      }
     }
   }
 
