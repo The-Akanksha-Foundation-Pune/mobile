@@ -17,7 +17,8 @@ captureAkanksha/
 │   │   │   ├── prisma.js
 │   │   │   ├── allowedMedia.js
 │   │   │   ├── publicApiBase.js   # PUBLIC_API_BASE_URL / Host for absolute links
-│   │   │   └── resolveMediaUrl.js # Rewrite loopback media URLs for client devices
+│   │   │   ├── mediaHost.js         # Detect loopback/LAN hosts for media URL rewrite
+│   │   │   └── resolveMediaUrl.js # Rewrite dev/LAN /media paths for client devices
 │   │   ├── middleware/
 │   │   │   └── auth.js       # JWT auth + role checks (admin)
 │   │   ├── routes/
@@ -41,7 +42,10 @@ captureAkanksha/
 │   │   └── scripts/
 │   │       ├── seed.js                # Base seed: event types + cities
 │   │       ├── seedDummyData.js       # Preview dataset → LocalDB (CC, donors, events, calendar)
-│   │       └── backfillEventCityIds.js  # Set event.cityId from cost center when null
+│   │       ├── backfillEventCityIds.js  # Set event.cityId from cost center when null
+│   │       ├── dbDumpLocal.js         # mysqldump LocalDB → backend/dumps/
+│   │       ├── dbImportToRailway.js   # Import latest dump into Railway MySQL
+│   │       └── backfillMediaUrls.js   # Normalize event.mediaUrl to /media/... paths
 │   ├── uploads/
 │   ├── package.json
 │   └── .env.example

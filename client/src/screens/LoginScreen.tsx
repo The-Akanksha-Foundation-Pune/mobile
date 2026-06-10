@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Animated,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -42,17 +43,19 @@ export function LoginScreen({ isLoading, canStartLogin, loginError, onLoginPress
   const logoFloat = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    const useNativeDriver = Platform.OS !== "web";
+
     Animated.parallel([
       Animated.spring(logoScale, {
         toValue: 1,
         friction: 7,
         tension: 70,
-        useNativeDriver: true,
+        useNativeDriver,
       }),
       Animated.timing(logoOpacity, {
         toValue: 1,
         duration: 650,
-        useNativeDriver: true,
+        useNativeDriver,
       }),
     ]).start();
 
@@ -61,12 +64,12 @@ export function LoginScreen({ isLoading, canStartLogin, loginError, onLoginPress
         Animated.timing(logoFloat, {
           toValue: 1,
           duration: 1800,
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(logoFloat, {
           toValue: 0,
           duration: 1800,
-          useNativeDriver: true,
+          useNativeDriver,
         }),
       ])
     );

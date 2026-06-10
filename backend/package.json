@@ -12,6 +12,9 @@
     "db:seed:dummy": "node src/scripts/seedDummyData.js",
     "db:seed:all": "node src/scripts/seed.js && node src/scripts/seedDummyData.js",
     "db:backfill:event-cities": "node src/scripts/backfillEventCityIds.js",
+    "db:dump": "node src/scripts/dbDumpLocal.js",
+    "db:migrate:railway": "node src/scripts/dbImportToRailway.js",
+    "db:backfill:media-urls": "node src/scripts/backfillMediaUrls.js",
     "finance:inspect": "node src/scripts/inspectFinanceCostCenter.js"
   },
   "keywords": [],

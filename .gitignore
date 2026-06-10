@@ -3,6 +3,7 @@ backend/node_modules
 mobile/node_modules
 backend/.env
 backend/uploads
+backend/dumps/*.sql
 backend/prisma/dev.db
 backend/prisma/dev.db-journal
 mobile/.expo
@@ -10,3 +11,5 @@ mobile/dist
 client/dist
 client/.expo
 *.log
+.vercel
+.env*
