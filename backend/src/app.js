@@ -45,19 +45,36 @@ app.get("/health/ready", async (_req, res) => {
   };
 
   let database = "ok";
+  let databaseHint = null;
   try {
     await prisma.$queryRaw`SELECT 1`;
-  } catch (_error) {
+  } catch (error) {
     database = "error";
+    const message = String(error?.message || "");
+    if (/can't reach database server|econnrefused|etimedout|enotfound/i.test(message)) {
+      databaseHint =
+        "Cannot reach MySQL host. For AWS RDS: enable Public access, open security group port 3306 to Vercel (0.0.0.0/0 for testing), and verify DB_HOST.";
+    } else if (/access denied|p1010/i.test(message)) {
+      databaseHint = "MySQL credentials rejected. Check DB_USER, DB_PASSWORD, and DATABASE_URL on Vercel.";
+    } else if (/does not exist|unknown database/i.test(message)) {
+      databaseHint = "Database name not found on server. Check DB_NAME and run prisma db push against RDS.";
+    } else if (/ssl|tls|certificate/i.test(message)) {
+      databaseHint = "SSL/TLS required. RDS URLs should include ?sslaccept=strict (auto-added for amazonaws.com hosts).";
+    } else {
+      databaseHint = "Database connection failed. Check Vercel env vars and RDS network rules.";
+    }
   }
 
   const ok =
-    checks.googleOAuthConfigured && checks.databaseUrlConfigured && database === "ok";
+    checks.googleOAuthConfigured &&
+    checks.databaseUrlConfigured &&
+    checks.jwtSecretConfigured &&
+    database === "ok";
 
   res.status(ok ? 200 : 503).json({
     ok,
     service: "capture-akanksha-backend",
-    checks: { ...checks, database },
+    checks: { ...checks, database, ...(databaseHint ? { databaseHint } : {}) },
   });
 });
 

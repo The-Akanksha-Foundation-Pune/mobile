@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { makeRedirectUri } from "expo-auth-session";
@@ -50,7 +50,12 @@ const NATIVE_REDIRECT_URI = makeRedirectUri({
     default: undefined,
   }),
 });
-const WEB_REDIRECT_URI = makeRedirectUri({ preferLocalhost: false });
+function getWebOAuthRedirectUri(): string {
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return process.env.EXPO_PUBLIC_WEB_REDIRECT_URI || makeRedirectUri({ preferLocalhost: false });
+}
 
 export default function App() {
   const [token, setToken] = useState("");
@@ -70,14 +75,24 @@ export default function App() {
   const [mediaType, setMediaType] = useState<MediaMode>("photo");
   const [media, setMedia] = useState<SelectedMedia>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
 
-  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
-    clientId: Platform.OS === "web" ? GOOGLE_WEB_CLIENT_ID : PLATFORM_CLIENT_ID,
-    webClientId: GOOGLE_WEB_CLIENT_ID,
-    androidClientId: GOOGLE_ANDROID_CLIENT_ID,
-    iosClientId: GOOGLE_IOS_CLIENT_ID,
-    redirectUri: Platform.OS === "web" ? WEB_REDIRECT_URI : NATIVE_REDIRECT_URI,
-  });
+  const webRedirectUri = useMemo(
+    () => (Platform.OS === "web" ? getWebOAuthRedirectUri() : ""),
+    []
+  );
+
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest(
+    {
+      clientId: Platform.OS === "web" ? GOOGLE_WEB_CLIENT_ID : PLATFORM_CLIENT_ID,
+      webClientId: GOOGLE_WEB_CLIENT_ID,
+      androidClientId: GOOGLE_ANDROID_CLIENT_ID,
+      iosClientId: GOOGLE_IOS_CLIENT_ID,
+      redirectUri: Platform.OS === "web" ? webRedirectUri : NATIVE_REDIRECT_URI,
+      selectAccount: true,
+    },
+    Platform.OS === "web" ? { preferLocalhost: false } : undefined
+  );
 
   useEffect(() => {
     if (Platform.OS === "web") return;
@@ -132,17 +147,32 @@ export default function App() {
   useEffect(() => {
     if (response?.type === "success") {
       const idToken = response.params.id_token;
-      if (idToken) void handleGoogleLogin(idToken);
+      if (!idToken) {
+        const hint =
+          Platform.OS === "web" && webRedirectUri
+            ? ` Add redirect URI in Google Console: ${webRedirectUri}`
+            : "";
+        setLoginError(`Google did not return an ID token.${hint}`);
+        return;
+      }
+      setLoginError("");
+      void handleGoogleLogin(idToken);
     }
     if (response?.type === "error") {
       const errorDescription =
         response.error?.description || response.error?.message || "Google auth request failed.";
-      Alert.alert("Google sign-in error", errorDescription);
+      setLoginError(errorDescription);
+      if (Platform.OS !== "web") {
+        Alert.alert("Google sign-in error", errorDescription);
+      }
     }
     if (response?.type === "dismiss" || response?.type === "cancel") {
-      Alert.alert("Google sign-in cancelled", "Please try again to continue.");
+      setLoginError("Google sign-in cancelled. Please try again.");
+      if (Platform.OS !== "web") {
+        Alert.alert("Google sign-in cancelled", "Please try again to continue.");
+      }
     }
-  }, [response]);
+  }, [response, webRedirectUri]);
 
   useEffect(() => {
     if (!token) return;
@@ -152,11 +182,16 @@ export default function App() {
   async function handleGoogleLogin(idToken: string) {
     try {
       setIsLoading(true);
+      setLoginError("");
       const auth = await signInWithGoogle(idToken);
       setToken(auth.token);
       setUser(auth.user);
     } catch (error) {
-      Alert.alert("Login error", (error as Error).message);
+      const message = (error as Error).message;
+      setLoginError(message);
+      if (Platform.OS !== "web") {
+        Alert.alert("Login error", message);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -217,14 +252,16 @@ export default function App() {
   async function handleGoogleSignInPress() {
     if (Platform.OS === "web") {
       if (!request) {
-        Alert.alert("Login not ready", "Google sign-in is still initializing. Please try again.");
+        setLoginError("Google sign-in is still initializing. Please try again in a moment.");
         return;
       }
       try {
+        setLoginError("");
         // Full-page redirect avoids OAuth popup COOP/window.close issues on hosted web.
         await promptAsync({ windowName: "_self" });
       } catch (error) {
-        Alert.alert("Google sign-in error", (error as Error).message);
+        const message = (error as Error).message;
+        setLoginError(message);
       }
       return;
     }
@@ -323,9 +360,14 @@ export default function App() {
   }
 
   function handleLogout() {
-    void AsyncStorage.removeItem(WEB_AUTH_TOKEN_KEY).catch(() => {
-      // Ignore async storage cleanup issues on logout.
-    });
+    if (Platform.OS === "web") {
+      window.localStorage.removeItem(WEB_AUTH_TOKEN_KEY);
+    } else {
+      void AsyncStorage.removeItem(WEB_AUTH_TOKEN_KEY).catch(() => {
+        // Ignore async storage cleanup issues on logout.
+      });
+    }
+    setLoginError("");
     setToken("");
     setUser(null);
     setCities([]);
@@ -355,7 +397,8 @@ export default function App() {
     return (
       <LoginScreen
         isLoading={isLoading}
-        canStartLogin
+        canStartLogin={Platform.OS !== "web" || Boolean(request)}
+        loginError={loginError}
         onLoginPress={() => {
           void handleGoogleSignInPress();
         }}

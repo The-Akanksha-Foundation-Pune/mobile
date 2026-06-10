@@ -19,6 +19,7 @@ import { darkPalette, palette } from "../theme/theme";
 type LoginScreenProps = {
   isLoading: boolean;
   canStartLogin: boolean;
+  loginError?: string;
   onLoginPress: () => void;
 };
 
@@ -28,7 +29,7 @@ const CREATIVE_SPARKS = [
   "Capture bold. Share what inspires change.",
 ];
 
-export function LoginScreen({ isLoading, canStartLogin, onLoginPress }: LoginScreenProps) {
+export function LoginScreen({ isLoading, canStartLogin, loginError, onLoginPress }: LoginScreenProps) {
   const isDark = useColorScheme() === "dark";
   const { height } = useWindowDimensions();
   const isCompact = height < 740;
@@ -150,6 +151,13 @@ export function LoginScreen({ isLoading, canStartLogin, onLoginPress }: LoginScr
             </View>
           ))}
         </View>
+
+        {loginError ? (
+          <View style={styles.errorCard}>
+            <Ionicons name="alert-circle-outline" size={18} color={colors.brand} />
+            <Text style={styles.errorText}>{loginError}</Text>
+          </View>
+        ) : null}
 
         <Text style={styles.footerNote}>Sign in with your Akanksha Google account to continue.</Text>
       </ScrollView>
@@ -317,6 +325,24 @@ function getStyles(isDark: boolean, isCompact: boolean) {
       fontWeight: "700",
       color: isDark ? "#ffb4bc" : colors.brand,
       letterSpacing: 0.3,
+    },
+    errorCard: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: isDark ? "#5a2430" : "#f5c2c9",
+      backgroundColor: isDark ? "rgba(255, 90, 106, 0.12)" : "#fff1f2",
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    errorText: {
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 20,
+      fontWeight: "600",
+      color: isDark ? "#ffb4bc" : colors.brandDark,
     },
     footerNote: {
       textAlign: "center",

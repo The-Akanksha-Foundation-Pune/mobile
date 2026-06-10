@@ -1,5 +1,15 @@
 require("dotenv").config();
 
+function withMysqlSslParams(url, host) {
+  if (!url || /[?&]sslaccept=/.test(url)) return url;
+
+  const useSsl =
+    process.env.DB_SSL === "true" ||
+    (host && (host.includes("amazonaws.com") || host.includes("rds.amazonaws.com")));
+
+  return useSsl ? `${url}?sslaccept=strict` : url;
+}
+
 function buildDatabaseUrlFromParts() {
   const host = process.env.DB_HOST;
   if (!host) return null;
@@ -9,11 +19,17 @@ function buildDatabaseUrlFromParts() {
   const port = process.env.DB_PORT || "3306";
   const database = process.env.DB_NAME || "LocalDB";
 
-  return `mysql://${user}:${password}@${host}:${port}/${database}`;
+  return withMysqlSslParams(`mysql://${user}:${password}@${host}:${port}/${database}`, host);
 }
 
 function ensureDatabaseUrl() {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  if (process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = withMysqlSslParams(
+      process.env.DATABASE_URL,
+      process.env.DB_HOST || ""
+    );
+    return process.env.DATABASE_URL;
+  }
 
   const built = buildDatabaseUrlFromParts();
   if (built) {

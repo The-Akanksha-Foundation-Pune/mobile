@@ -13,6 +13,7 @@
     "doctor": "npx expo-doctor",
     "android:fingerprints": "keytool -list -v -keystore \"$HOME/.android/debug.keystore\" -alias androiddebugkey -storepass android -keypass android 2>/dev/null | grep -E 'SHA1|SHA256' || (echo 'No debug keystore yet. Run: npx expo run:android' && exit 1)",
     "google:setup": "node scripts/print-google-oauth-setup.mjs",
+    "google:setup:web": "node scripts/print-web-oauth-setup.mjs",
     "api:setup": "node scripts/print-api-setup.mjs",
     "api:ngrok": "node scripts/print-ngrok-setup.mjs",
     "api:sync-ngrok": "node scripts/sync-ngrok-api-url.mjs",
