@@ -78,6 +78,27 @@ app.get("/health/ready", async (_req, res) => {
   });
 });
 
+app.get("/health/db", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({
+      ok: true,
+      live: true,
+      database: "connected",
+      service: "capture-akanksha-backend",
+    });
+  } catch (error) {
+    res.status(503).json({
+      ok: false,
+      live: true,
+      database: "disconnected",
+      service: "capture-akanksha-backend",
+      message: "Database connectivity check failed.",
+      error: String(error?.message || "Unknown database error"),
+    });
+  }
+});
+
 const uploadsDir = path.join(__dirname, "..", "uploads");
 app.use("/media", express.static(uploadsDir));
 
