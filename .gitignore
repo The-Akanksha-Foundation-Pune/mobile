@@ -1,7 +1,6 @@
 node_modules
 backend/node_modules
 mobile/node_modules
-backend/.env
 backend/uploads
 backend/dumps/*.sql
 backend/prisma/dev.db
@@ -12,4 +11,8 @@ client/dist
 client/.expo
 *.log
 .vercel
-.env*
+
+# Environment files (any folder). Keep the *.example templates tracked.
+.env
+.env.*
+!.env.example
