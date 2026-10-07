@@ -47,14 +47,18 @@ function serializeEntry(entry) {
 
 router.get("/", requireAuth, async (req, res) => {
   const { costCenterId, cityId, month } = req.query;
-  if (!costCenterId) {
-    return res.status(400).json({ message: "costCenterId is required." });
+  if (!costCenterId && !cityId) {
+    return res.status(400).json({ message: "costCenterId or cityId is required." });
   }
 
   const range = month ? monthRange(month) : null;
   const where = {
-    costCenterId: String(costCenterId),
-    ...(cityId ? { cityId: String(cityId) } : {}),
+    ...(costCenterId
+      ? {
+          costCenterId: String(costCenterId),
+          ...(cityId ? { cityId: String(cityId) } : {}),
+        }
+      : { OR: [{ cityId: String(cityId) }, { costCenter: { cityId: String(cityId) } }] }),
     ...(req.user.role === "admin" ? {} : { isPublished: true }),
     ...(range
       ? {

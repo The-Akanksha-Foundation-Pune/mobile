@@ -33,10 +33,12 @@ const createEventSchema = z.object({
   typeId: z.string().min(1),
   eventDate: z.string().min(4),
   mediaType: z.enum(["photo", "video"]),
-  costCenterId: z.string().min(1),
+  costCenterId: z.string().min(1).optional(),
   cityId: z.string().min(1).optional(),
   location: z.string().max(300).optional(),
   eventStatus: z.enum(["upcoming", "ongoing", "complete"]).optional(),
+}).refine((data) => data.costCenterId || data.cityId, {
+  message: "Select a cost center or a city.",
 });
 
 function buildCityFilter(cityId) {
@@ -186,6 +188,28 @@ router.post("/", requireAuth, (req, res, next) => {
     return res.status(404).json({ message: "Selected event type does not exist." });
   }
 
+  let costCenter = null;
+  if (parsed.data.costCenterId) {
+    costCenter = await prisma.costCenter.findUnique({
+      where: { id: parsed.data.costCenterId },
+    });
+    if (!costCenter) {
+      return res.status(404).json({ message: "Selected cost center does not exist." });
+    }
+    if (!costCenter.cityId && !parsed.data.cityId) {
+      return res.status(400).json({
+        message: "Selected cost center has no mapped city. Only Finance cost centers with a valid city are allowed.",
+      });
+    }
+  }
+
+  if (parsed.data.cityId) {
+    const city = await prisma.city.findUnique({ where: { id: parsed.data.cityId } });
+    if (!city) {
+      return res.status(404).json({ message: "Selected city does not exist." });
+    }
+  }
+
   const publicBase = resolvePublicBaseUrl(req);
 
   let uploadedFile;
@@ -206,33 +230,14 @@ router.post("/", requireAuth, (req, res, next) => {
     throw err;
   }
 
-  const costCenter = await prisma.costCenter.findUnique({
-    where: { id: parsed.data.costCenterId },
-  });
-  if (!costCenter) {
-    return res.status(404).json({ message: "Selected cost center does not exist." });
-  }
-  if (!costCenter.cityId) {
-    return res.status(400).json({
-      message: "Selected cost center has no mapped city. Only Finance cost centers with a valid city are allowed.",
-    });
-  }
-
-  if (parsed.data.cityId) {
-    const city = await prisma.city.findUnique({ where: { id: parsed.data.cityId } });
-    if (!city) {
-      return res.status(404).json({ message: "Selected city does not exist." });
-    }
-  }
-
   const nextEvent = await prisma.event.create({
     data: {
       title: parsed.data.title.trim(),
       caption: parsed.data.caption.trim(),
       typeId: parsed.data.typeId,
-      costCenterId: parsed.data.costCenterId,
+      costCenterId: costCenter ? costCenter.id : null,
       eventDate: new Date(`${parsed.data.eventDate}T00:00:00.000Z`),
-      cityId: parsed.data.cityId || costCenter.cityId || null,
+      cityId: parsed.data.cityId || costCenter?.cityId || null,
       location: parsed.data.location?.trim() || null,
       eventStatus: parsed.data.eventStatus || "upcoming",
       mediaType: parsed.data.mediaType,

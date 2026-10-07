@@ -43,7 +43,7 @@ type HomeScreenProps = {
   onChangeCaption: (next: string) => void;
   onChangeEventLocation: (next: string) => void;
   onCaptureMedia: () => void;
-  onSaveEvent: (costCenterId: string, cityId?: string | null) => Promise<boolean>;
+  onSaveEvent: (costCenterId: string | null, cityId?: string | null) => Promise<boolean>;
 };
 
 type OverlayScreen = "add" | "admin" | "profile" | null;
@@ -77,6 +77,7 @@ export function HomeScreen(props: HomeScreenProps) {
 
   const [selectedCity, setSelectedCity] = useState<City | null>(null);
   const [selectedCostCenter, setSelectedCostCenter] = useState<CostCenter | null>(null);
+  const [skippedCostCenter, setSkippedCostCenter] = useState(false);
   const [overlay, setOverlay] = useState<OverlayScreen>(null);
   const isDark = useColorScheme() === "dark";
   const styles = useMemo(() => getStyles(isDark), [isDark]);
@@ -88,7 +89,7 @@ export function HomeScreen(props: HomeScreenProps) {
     return costCenters.filter((cc) => cc.cityId === selectedCity.id);
   }, [costCenters, selectedCity]);
 
-  if (overlay === "add" && selectedCostCenter && selectedCity) {
+  if (overlay === "add" && selectedCity && (selectedCostCenter || skippedCostCenter)) {
     return (
       <AddEventScreen
         token={token}
@@ -111,7 +112,7 @@ export function HomeScreen(props: HomeScreenProps) {
         onChangeLocation={onChangeEventLocation}
         onCaptureMedia={onCaptureMedia}
         onSaveEvent={async () => {
-          const ok = await onSaveEvent(selectedCostCenter.id, selectedCity.id);
+          const ok = await onSaveEvent(selectedCostCenter?.id ?? null, selectedCity.id);
           if (ok) setOverlay(null);
         }}
       />
@@ -168,7 +169,7 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  if (!selectedCostCenter) {
+  if (!selectedCostCenter && !skippedCostCenter) {
     return (
       <>
         <CostCenterPickerScreen
@@ -177,6 +178,7 @@ export function HomeScreen(props: HomeScreenProps) {
           userName={user.name}
           onBack={() => setSelectedCity(null)}
           onSelectCostCenter={setSelectedCostCenter}
+          onSkip={() => setSkippedCostCenter(true)}
         />
         <StatusBar style="light" />
       </>
@@ -193,13 +195,18 @@ export function HomeScreen(props: HomeScreenProps) {
         onGoHome={() => {
           setOverlay(null);
           setSelectedCostCenter(null);
+          setSkippedCostCenter(false);
           setSelectedCity(null);
         }}
         onChangeCity={() => {
           setSelectedCostCenter(null);
+          setSkippedCostCenter(false);
           setSelectedCity(null);
         }}
-        onChangeCostCenter={() => setSelectedCostCenter(null)}
+        onChangeCostCenter={() => {
+          setSelectedCostCenter(null);
+          setSkippedCostCenter(false);
+        }}
         onOpenAdd={() => setOverlay("add")}
         onOpenAdmin={() => setOverlay("admin")}
         onOpenProfile={() => setOverlay("profile")}

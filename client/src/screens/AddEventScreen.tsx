@@ -10,7 +10,7 @@ import { darkPalette, palette } from "../theme/theme";
 type AddEventScreenProps = {
   token: string;
   city: City;
-  costCenter: CostCenter;
+  costCenter: CostCenter | null;
   eventTypes: EventType[];
   selectedTypeId: string;
   eventTitle: string;
@@ -93,8 +93,8 @@ export function AddEventScreen(props: AddEventScreenProps) {
         context: {
           title: eventTitle.trim() || undefined,
           cityName: city.name,
-          costCenterName: costCenter.name,
-          costCenterCode: costCenter.code,
+          costCenterName: costCenter?.name,
+          costCenterCode: costCenter?.code,
           eventTypeName: selectedEventTypeName,
           location: location.trim() || undefined,
           eventDate: eventDate || undefined,
@@ -118,13 +118,13 @@ export function AddEventScreen(props: AddEventScreenProps) {
         <Pressable onPress={onClose}>
           <Ionicons name="arrow-back" size={22} color={colors.ink} />
         </Pressable>
-        <Text style={styles.headerTitle}>Add event • {costCenter.code}</Text>
+        <Text style={styles.headerTitle}>Add event • {costCenter ? costCenter.code : city.name}</Text>
         <View style={{ width: 22 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.ccHint}>
-          {city.name} • {costCenter.name} ({costCenter.code}) — event type required below
+          {costCenter ? `${city.name} • ${costCenter.name} (${costCenter.code})` : `${city.name} • no cost center`} — event type required below
         </Text>
         <TextInput
           style={styles.titleInput}

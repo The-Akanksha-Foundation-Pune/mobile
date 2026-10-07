@@ -356,7 +356,7 @@ export default function App() {
     }
   }
 
-  async function handleSubmitEvent(costCenterId: string, cityId?: string | null): Promise<boolean> {
+  async function handleSubmitEvent(costCenterId: string | null, cityId?: string | null): Promise<boolean> {
     if (!selectedTypeId || !eventTitle.trim() || !caption.trim() || !eventDate || !media) {
       Alert.alert("Missing fields", "Title, type, date, caption and media are required.");
       return false;
@@ -372,7 +372,7 @@ export default function App() {
         eventDate,
         mediaType,
         media,
-        costCenterId,
+        costCenterId: costCenterId || undefined,
         cityId: cityId || undefined,
         location: eventLocation,
       });
@@ -383,7 +383,7 @@ export default function App() {
       await loadSessionData();
       Alert.alert(
         "Success",
-        "Event saved for this cost center. An admin can approve it and notify donors."
+        "Event saved. An admin can approve it and notify donors."
       );
       return true;
     } catch (error) {

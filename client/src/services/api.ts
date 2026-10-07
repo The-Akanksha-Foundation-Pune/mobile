@@ -242,11 +242,14 @@ export async function fetchEvents(args: {
 
 export async function fetchCalendarEntries(args: {
   token: string;
-  costCenterId: string;
+  costCenterId?: string;
+  cityId?: string;
   month?: string;
 }): Promise<CalendarEntry[]> {
   const baseUrl = getApiBaseUrl();
-  const params = new URLSearchParams({ costCenterId: args.costCenterId });
+  const params = new URLSearchParams();
+  if (args.costCenterId) params.set("costCenterId", args.costCenterId);
+  else if (args.cityId) params.set("cityId", args.cityId);
   if (args.month) params.set("month", args.month);
 
   const response = await apiFetch(`${baseUrl}/api/calendar?${params.toString()}`, {
@@ -380,7 +383,7 @@ export async function uploadEvent(args: {
   eventDate: string;
   mediaType: MediaMode;
   media: SelectedMedia;
-  costCenterId: string;
+  costCenterId?: string | null;
   cityId?: string;
   location?: string;
 }): Promise<void> {
@@ -396,7 +399,7 @@ export async function uploadEvent(args: {
   formData.append("typeId", typeId);
   formData.append("eventDate", eventDate);
   formData.append("mediaType", mediaType);
-  formData.append("costCenterId", costCenterId);
+  if (costCenterId) formData.append("costCenterId", costCenterId);
   if (cityId) formData.append("cityId", cityId);
   if (location?.trim()) formData.append("location", location.trim());
 

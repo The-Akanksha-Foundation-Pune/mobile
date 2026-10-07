@@ -30,7 +30,7 @@ import { formatDisplayDate, groupByDateAndLocation } from "../utils/eventGroupin
 type EventsHubScreenProps = {
   token: string;
   city: City;
-  costCenter: CostCenter;
+  costCenter: CostCenter | null;
   isAdmin: boolean;
   onGoHome: () => void;
   onChangeCity: () => void;
@@ -67,11 +67,11 @@ export function EventsHubScreen({
   const colors = isDark ? darkPalette : palette;
 
   const ongoingEvents = useMemo(
-    () => (USE_DUMMY_HUB_DATA ? getDummyOngoingEvents(costCenter) : ongoing),
+    () => (USE_DUMMY_HUB_DATA ? costCenter ? getDummyOngoingEvents(costCenter) : [] : ongoing),
     [costCenter, ongoing]
   );
   const upcomingEvents = useMemo(
-    () => (USE_DUMMY_HUB_DATA ? getDummyUpcomingEvents(costCenter) : upcoming),
+    () => (USE_DUMMY_HUB_DATA ? costCenter ? getDummyUpcomingEvents(costCenter) : [] : upcoming),
     [costCenter, upcoming]
   );
   const captureEvents = useMemo(
@@ -79,13 +79,17 @@ export function EventsHubScreen({
     [city, completedEvents]
   );
   const calendarForDisplay = useMemo(
-    () => (USE_DUMMY_HUB_DATA ? getDummyCalendarEntries(costCenter, month) : calendarEntries),
+    () => (USE_DUMMY_HUB_DATA ? costCenter ? getDummyCalendarEntries(costCenter, month) : [] : calendarEntries),
     [costCenter, month, calendarEntries]
   );
   const captureGroups = useMemo(() => groupByDateAndLocation(captureEvents), [captureEvents]);
   const feedEvents = useMemo(() => {
     if (USE_DUMMY_HUB_DATA) {
-      const merged = [...getDummyCompletedEventsByCity(city), ...getDummyOngoingEvents(costCenter), ...getDummyUpcomingEvents(costCenter)];
+      const merged = [
+        ...getDummyCompletedEventsByCity(city),
+        ...(costCenter ? getDummyOngoingEvents(costCenter) : []),
+        ...(costCenter ? getDummyUpcomingEvents(costCenter) : []),
+      ];
       const seen = new Set<string>();
       return merged
         .filter((event) => {
@@ -124,13 +128,14 @@ export function EventsHubScreen({
       return;
     }
     setLoading(true);
+    const scopeFilter = costCenter ? { costCenterId: costCenter.id } : { cityId: city.id };
     try {
       const [ongoingResult, upcomingResult, completeResult, allResult, calendarResult] = await Promise.allSettled([
-        fetchEvents({ token, costCenterId: costCenter.id, status: "ongoing" }),
-        fetchEvents({ token, costCenterId: costCenter.id, status: "upcoming" }),
+        fetchEvents({ token, ...scopeFilter, status: "ongoing" }),
+        fetchEvents({ token, ...scopeFilter, status: "upcoming" }),
         fetchEvents({ token, cityId: city.id, status: "complete" }),
         fetchEvents({ token, cityId: city.id }),
-        fetchCalendarEntries({ token, costCenterId: costCenter.id, month }),
+        fetchCalendarEntries({ token, ...scopeFilter, month }),
       ]);
       setOngoing(ongoingResult.status === "fulfilled" ? ongoingResult.value : []);
       setUpcoming(upcomingResult.status === "fulfilled" ? upcomingResult.value : []);
@@ -144,7 +149,7 @@ export function EventsHubScreen({
 
   useEffect(() => {
     void loadHubData();
-  }, [token, costCenter.id, city.id, month]);
+  }, [token, costCenter?.id, city.id, month]);
 
   function renderHorizontalEvents(events: EventItem[], emptyLabel: string) {
     if (events.length === 0) {
@@ -175,7 +180,7 @@ export function EventsHubScreen({
           </Pressable>
           <Pressable style={styles.cityChip} onPress={onChangeCostCenter}>
             <Ionicons name="grid" size={14} color="#fff" />
-            <Text style={styles.cityChipText}>{costCenter.code}</Text>
+            <Text style={styles.cityChipText}>{costCenter ? costCenter.code : "All cost centers"}</Text>
             <Ionicons name="chevron-down" size={14} color="#fff" />
           </Pressable>
         </View>
@@ -261,7 +266,7 @@ export function EventsHubScreen({
 
         {activeTab === "ongoing" ? (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Ongoing — {costCenter.name}</Text>
+            <Text style={styles.sectionTitle}>Ongoing — {costCenter ? costCenter.name : city.name}</Text>
             {USE_DUMMY_HUB_DATA ? (
               <Text style={styles.sectionHint}>Preview — events happening now.</Text>
             ) : null}
@@ -271,7 +276,7 @@ export function EventsHubScreen({
 
         {activeTab === "upcoming" ? (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Upcoming — {costCenter.name}</Text>
+            <Text style={styles.sectionTitle}>Upcoming — {costCenter ? costCenter.name : city.name}</Text>
             {USE_DUMMY_HUB_DATA ? (
               <Text style={styles.sectionHint}>Preview — scheduled upcoming events.</Text>
             ) : null}
@@ -329,11 +334,11 @@ export function EventsHubScreen({
               ))
             )}
             <View style={styles.inlineSection}>
-              <Text style={styles.sectionTitle}>Ongoing — {costCenter.name}</Text>
+              <Text style={styles.sectionTitle}>Ongoing — {costCenter ? costCenter.name : city.name}</Text>
               {renderHorizontalEvents(ongoingEvents, "No ongoing events in this city yet.")}
             </View>
             <View style={styles.inlineSection}>
-              <Text style={styles.sectionTitle}>Upcoming — {costCenter.name}</Text>
+              <Text style={styles.sectionTitle}>Upcoming — {costCenter ? costCenter.name : city.name}</Text>
               {renderHorizontalEvents(upcomingEvents, "No upcoming events in this city yet.")}
             </View>
           </View>

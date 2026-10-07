@@ -11,6 +11,7 @@ type CostCenterPickerScreenProps = {
   userName: string;
   onBack: () => void;
   onSelectCostCenter: (center: CostCenter) => void;
+  onSkip: () => void;
 };
 
 export function CostCenterPickerScreen({
@@ -19,6 +20,7 @@ export function CostCenterPickerScreen({
   userName,
   onBack,
   onSelectCostCenter,
+  onSkip,
 }: CostCenterPickerScreenProps) {
   const [query, setQuery] = useState("");
   const isDark = useColorScheme() === "dark";
@@ -66,6 +68,24 @@ export function CostCenterPickerScreen({
         data={filtered}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        ListHeaderComponent={
+          <Pressable
+            style={({ pressed }) => [styles.row, styles.skipRow, pressed && styles.pressed]}
+            onPress={onSkip}
+            accessibilityLabel="Continue without a cost center"
+          >
+            <View style={styles.icon}>
+              <Ionicons name="arrow-forward-circle" size={20} color={colors.brand} />
+            </View>
+            <View style={styles.textWrap}>
+              <Text style={styles.name}>Skip - no cost center</Text>
+              <Text style={styles.code}>Browse and add events for all of {selectedCity.name}</Text>
+            </View>
+            <View style={styles.chevronWrap}>
+              <Ionicons name="chevron-forward" size={18} color={colors.inkSoft} />
+            </View>
+          </Pressable>
+        }
         renderItem={({ item }) => (
           <Pressable
             style={({ pressed }) => [styles.row, pressed && styles.pressed]}
@@ -88,7 +108,7 @@ export function CostCenterPickerScreen({
         )}
         ListEmptyComponent={
           <Text style={styles.empty}>
-            No cost centers mapped to {selectedCity.name}. Sync Finance.costcenter for this city.
+            No cost centers mapped to {selectedCity.name}. You can skip this step.
           </Text>
         }
       />
@@ -172,6 +192,7 @@ function getStyles(isDark: boolean) {
       minHeight: 74,
     },
     pressed: { opacity: 0.9 },
+    skipRow: { borderStyle: "dashed", minHeight: 64 },
     icon: {
       width: 40,
       height: 40,
