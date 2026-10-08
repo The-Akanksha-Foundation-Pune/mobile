@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useDetectedCity } from "../hooks/useDetectedCity";
 import type { City, CostCenter, EventItem, HubTab } from "../types/app";
 import { darkPalette, palette } from "../theme/theme";
+import { layout } from "../theme/layout";
 import { sortCitiesWithDefaultFirst, sortEventsWithCityFirst } from "../utils/locationCity";
 
 type CityPickerScreenProps = {
@@ -12,9 +13,27 @@ type CityPickerScreenProps = {
   costCenters: CostCenter[];
   events: EventItem[];
   userName: string;
+  /** City currently used to filter the feed; null shows every city. */
+  selectedCityId: string | null;
   onSelectCity: (city: City) => void;
+  onClearCity: () => void;
   onOpenProfile?: () => void;
 };
+
+const CODE_TINTS = [
+  { fg: "#c4242f", bg: "#fdeaec" },
+  { fg: "#0f7a4d", bg: "#e3f6ec" },
+  { fg: "#3b4fd6", bg: "#e8ecfd" },
+  { fg: "#b45309", bg: "#fff1dc" },
+  { fg: "#7a3bd6", bg: "#f1e8fd" },
+  { fg: "#0e7490", bg: "#e0f5fa" },
+];
+
+function tintForCode(code: string) {
+  let hash = 0;
+  for (let i = 0; i < code.length; i += 1) hash = (hash * 31 + code.charCodeAt(i)) >>> 0;
+  return CODE_TINTS[hash % CODE_TINTS.length];
+}
 
 function getCityIconSource(cityName: string) {
   const name = cityName.trim().toLowerCase();
@@ -29,8 +48,9 @@ export function CityPickerScreen({
   costCenters,
   events,
   userName,
+  selectedCityId,
   onSelectCity,
-  onOpenProfile,
+  onClearCity,
 }: CityPickerScreenProps) {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<HubTab>("feed");
@@ -99,9 +119,10 @@ export function CityPickerScreen({
       events.filter((event) => {
         const eventCityId =
           event.cityId || (event.costCenterId ? costCenterCityById.get(event.costCenterId) : null) || null;
-        return Boolean(eventCityId && visibleCityIds.has(eventCityId));
+        if (!eventCityId || !visibleCityIds.has(eventCityId)) return false;
+        return !selectedCityId || eventCityId === selectedCityId;
       }),
-    [costCenterCityById, events, visibleCityIds]
+    [costCenterCityById, events, visibleCityIds, selectedCityId]
   );
   const sortByLocalFirst = (list: EventItem[]) =>
     sortEventsWithCityFirst(list, detectedCityId, costCenterCityById);
@@ -147,136 +168,168 @@ export function CityPickerScreen({
 
     return (
       <View style={styles.cardsGrid}>
-        {list.map((event) => (
-          <Pressable
-            key={event.id}
-            style={({ pressed }) => [styles.thumbCard, pressed && styles.pressed]}
-            onPress={() => setSelectedEvent(event)}
-          >
-            {event.mediaType === "photo" && event.mediaUrl ? (
-              <Image source={{ uri: event.mediaUrl }} style={styles.thumbImage} />
-            ) : event.mediaType === "video" && event.mediaUrl && Platform.OS === "web" ? (
-              <video src={event.mediaUrl} style={{ width: "100%", height: 120 }} />
-            ) : (
-              <View style={styles.thumbFallback}>
-                <Ionicons name="videocam-outline" size={18} color={colors.brand} />
+        {list.map((event) => {
+          const tint = event.costCenterCode ? tintForCode(event.costCenterCode) : null;
+          return (
+            <Pressable
+              key={event.id}
+              style={({ pressed }) => [styles.thumbCard, pressed && styles.pressed]}
+              onPress={() => setSelectedEvent(event)}
+            >
+              <View>
+                {event.mediaType === "photo" && event.mediaUrl ? (
+                  <Image source={{ uri: event.mediaUrl }} style={styles.thumbImage} />
+                ) : event.mediaType === "video" && event.mediaUrl && Platform.OS === "web" ? (
+                  <video src={event.mediaUrl} style={{ width: "100%", height: 124 }} />
+                ) : (
+                  <View style={styles.thumbFallback}>
+                    <Ionicons name="videocam-outline" size={22} color={colors.brand} />
+                  </View>
+                )}
+                {event.eventTypeName ? (
+                  <View style={styles.typeBadge}>
+                    <Text style={styles.typeBadgeText} numberOfLines={1}>
+                      {event.eventTypeName}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
-            )}
-            <View style={styles.thumbBody}>
-              <Text style={styles.thumbTitle} numberOfLines={2}>
-                {event.title || "Untitled event"}
-              </Text>
-              <Text style={styles.thumbMeta} numberOfLines={1}>
-                {event.eventDate} • {event.location || "No location"}
-              </Text>
-              <Text style={styles.thumbMeta} numberOfLines={1}>
-                {event.eventTypeName}
-                {event.costCenterCode ? ` • ${event.costCenterCode}` : ""}
-              </Text>
-            </View>
-          </Pressable>
-        ))}
+              <View style={styles.thumbBody}>
+                <Text style={styles.thumbTitle} numberOfLines={2}>
+                  {event.title || "Untitled event"}
+                </Text>
+                <Text style={styles.thumbMeta} numberOfLines={1}>
+                  {event.eventDate} • {event.location || event.cityName || "No location"}
+                </Text>
+                {tint ? (
+                  <View style={[styles.codePill, { backgroundColor: tint.bg }]}>
+                    <Text style={[styles.codePillText, { color: tint.fg }]} numberOfLines={1}>
+                      {event.costCenterCode}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </Pressable>
+          );
+        })}
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.hero}>
-        <View style={styles.heroTopRow}>
-          <Text style={styles.brand}>CaptureAkanksha</Text>
-          {onOpenProfile ? (
-            <Pressable style={styles.profileBtn} onPress={onOpenProfile}>
-              <Ionicons name="person-circle-outline" size={22} color="#fff" />
-            </Pressable>
-          ) : null}
-        </View>
-        <Text style={styles.greeting}>Hi {userName.split(" ")[0]}, select your city</Text>
-        <Text style={styles.subtitle}>Then choose a cost center to view and capture events</Text>
-      </View>
-
-      <View style={styles.searchWrap}>
-        <Ionicons name="search" size={18} color={colors.inkSoft} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search by city, event, cost center, or user"
-          placeholderTextColor={colors.inkSoft}
-          style={styles.searchInput}
-        />
-        <Pressable onPress={() => void detect()} style={styles.detectBtn} disabled={isDetecting}>
-          <Ionicons name="locate" size={18} color={colors.brand} />
-        </Pressable>
-      </View>
-
-      {detectedCity ? (
-        <View style={styles.locationBanner}>
-          <Ionicons name="navigate" size={14} color={colors.brand} />
-          <Text style={styles.locationBannerText}>
-            Showing {detectedCity.name} events first based on your location
-          </Text>
-        </View>
-      ) : isDetecting ? (
-        <Text style={styles.locationHint}>Detecting your city...</Text>
-      ) : null}
-
-      <Text style={styles.sectionTitle}>Cities</Text>
-      {filtered.length === 0 ? <Text style={styles.empty}>No cities found.</Text> : null}
+    <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView
-        horizontal
-        style={styles.cityRowScroll}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tabRow}
+        style={styles.eventsWrap}
+        contentContainerStyle={styles.eventsContent}
+        showsVerticalScrollIndicator={false}
+        stickyHeaderIndices={[2]}
       >
-        {filtered.map((item) => {
-          const isNearYou = item.id === detectedCityId;
-          return (
-            <Pressable
-              key={item.id}
-              style={({ pressed }) => [
-                styles.cityTab,
-                isNearYou && styles.cityTabNearYou,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => onSelectCity(item)}
-            >
-              <View style={styles.cityTabInner}>
-                <View style={[styles.cityIconWrap, isNearYou && styles.cityIconWrapNearYou]}>
-                  <Image source={getCityIconSource(item.name)} style={styles.cityIconImage} resizeMode="contain" />
-                </View>
-                <Text style={[styles.cityTabText, isNearYou && styles.cityTabTextNearYou]} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                {isNearYou ? <Text style={styles.nearYouBadge}>Near you</Text> : null}
-              </View>
+        <View style={styles.hero}>
+          <View style={styles.brandRow}>
+            <View style={styles.brandDot} />
+            <Text style={styles.brand}>CaptureAkanksha</Text>
+          </View>
+          <Text style={styles.greeting}>Hi {userName.split(" ")[0]}, select your city</Text>
+          <Text style={styles.subtitle}>Browse events and capture moments across Akanksha</Text>
+        </View>
+
+        <View>
+          <View style={styles.searchWrap}>
+            <Ionicons name="search" size={18} color={colors.inkSoft} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search by city, event, cost center..."
+              placeholderTextColor={colors.inkSoft}
+              style={styles.searchInput}
+            />
+            <Pressable onPress={() => void detect()} style={styles.detectBtn} disabled={isDetecting}>
+              <Ionicons name="locate" size={18} color={colors.brand} />
             </Pressable>
-          );
-        })}
-      </ScrollView>
+          </View>
 
-      <View style={styles.eventTabRow}>
-        {(
-          [
-            { id: "feed", label: "Feed" },
-            { id: "ongoing", label: "Ongoing" },
-            { id: "upcoming", label: "Upcoming" },
-            { id: "capture", label: "CaptureAkanksha" },
-            { id: "calendar", label: "Calendar" },
-          ] as Array<{ id: HubTab; label: string }>
-        ).map((tab) => (
-          <Pressable
-            key={tab.id}
-            style={[styles.eventTab, activeTab === tab.id && styles.eventTabActive]}
-            onPress={() => setActiveTab(tab.id)}
+          {detectedCity ? (
+            <View style={styles.locationBanner}>
+              <Ionicons name="location" size={15} color={colors.brand} />
+              <Text style={styles.locationBannerText}>
+                Showing {detectedCity.name} events first based on your location
+              </Text>
+            </View>
+          ) : isDetecting ? (
+            <Text style={styles.locationHint}>Detecting your city...</Text>
+          ) : null}
+
+          <View style={styles.sectionRow}>
+            <Text style={styles.sectionTitle}>Cities</Text>
+            <Pressable onPress={onClearCity} hitSlop={8}>
+              <Text style={styles.viewAll}>View All</Text>
+            </Pressable>
+          </View>
+          {filtered.length === 0 ? <Text style={styles.empty}>No cities found.</Text> : null}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.cityRow}
           >
-            <Text style={[styles.eventTabText, activeTab === tab.id && styles.eventTabTextActive]}>
-              {tab.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+            {filtered.map((item) => {
+              const isNearYou = item.id === detectedCityId;
+              const isSelected = item.id === selectedCityId;
+              return (
+                <Pressable
+                  key={item.id}
+                  style={({ pressed }) => [
+                    styles.cityTab,
+                    isSelected && styles.cityTabSelected,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => onSelectCity(item)}
+                >
+                  <View style={[styles.cityIconWrap, isSelected && styles.cityIconWrapSelected]}>
+                    <Image source={getCityIconSource(item.name)} style={styles.cityIconImage} resizeMode="contain" />
+                  </View>
+                  <View style={styles.cityTextWrap}>
+                    <Text style={styles.cityTabText} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text
+                      style={[styles.citySub, isNearYou && styles.citySubNear]}
+                      numberOfLines={1}
+                    >
+                      {isNearYou ? "NEAR YOU" : item.state || "India"}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
 
-      <ScrollView style={styles.eventsWrap} contentContainerStyle={styles.eventsContent}>
+        <View style={styles.tabBar}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.eventTabRow}>
+            {(
+              [
+                { id: "feed", label: "Feed" },
+                { id: "ongoing", label: "Ongoing" },
+                { id: "upcoming", label: "Upcoming" },
+                { id: "capture", label: "CaptureAkanksha" },
+                { id: "calendar", label: "Calendar" },
+              ] as Array<{ id: HubTab; label: string }>
+            ).map((tab) => (
+              <Pressable
+                key={tab.id}
+                style={[styles.eventTab, activeTab === tab.id && styles.eventTabActive]}
+                onPress={() => setActiveTab(tab.id)}
+              >
+                <Text style={[styles.eventTabText, activeTab === tab.id && styles.eventTabTextActive]}>
+                  {tab.label}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+
+        <View style={styles.eventsBody}>
+
         {activeTab === "feed" ? (
           renderDetailedEvents(feedEvents, "No events found for selected cities.")
         ) : null}
@@ -307,6 +360,7 @@ export function CityPickerScreen({
             <Text style={styles.empty}>No calendar entries found for selected cities.</Text>
           )
         ) : null}
+        </View>
       </ScrollView>
 
       <Modal visible={Boolean(selectedEvent)} transparent animationType="fade" onRequestClose={() => setSelectedEvent(null)}>
@@ -357,58 +411,42 @@ function getStyles(isDark: boolean) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: isDark ? "#0d1322" : "#f4f6fa" },
     hero: {
-      paddingHorizontal: 18,
-      paddingTop: 8,
-      paddingBottom: 14,
+      paddingHorizontal: layout.screenPadding,
+      paddingTop: 12,
+      paddingBottom: 38,
       backgroundColor: colors.brand,
-      borderBottomLeftRadius: 22,
-      borderBottomRightRadius: 22,
+      borderBottomLeftRadius: 28,
+      borderBottomRightRadius: 28,
     },
+    brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+    brandDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#3ddc97" },
     brand: {
       color: "#fff",
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: "800",
-      letterSpacing: 1,
+      letterSpacing: 1.2,
       textTransform: "uppercase",
     },
-    heroTopRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-    },
-    profileBtn: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(255,255,255,0.16)",
-    },
-    greeting: {
-      color: "#fff",
-      fontSize: 24,
-      fontWeight: "800",
-      marginTop: 8,
-    },
-    subtitle: {
-      color: "rgba(255,255,255,0.88)",
-      fontSize: 13,
-      marginTop: 4,
-    },
+    greeting: { color: "#fff", fontSize: 24, fontWeight: "800", marginTop: 10, lineHeight: 30 },
+    subtitle: { color: "rgba(255,255,255,0.9)", fontSize: 13, marginTop: 4 },
     searchWrap: {
-      marginHorizontal: 18,
-      marginTop: 12,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
+      marginHorizontal: layout.screenPadding,
+      marginTop: -24,
+      borderRadius: 16,
       backgroundColor: colors.surface,
-      minHeight: 52,
-      paddingHorizontal: 12,
+      minHeight: 48,
+      paddingLeft: 14,
+      paddingRight: 8,
       flexDirection: "row",
       alignItems: "center",
       gap: 8,
+      shadowColor: "#000",
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 4,
     },
-    searchInput: { flex: 1, fontSize: 15, color: colors.ink },
+    searchInput: { flex: 1, fontSize: 14, color: colors.ink, paddingVertical: 8 },
     detectBtn: {
       width: 34,
       height: 34,
@@ -418,14 +456,14 @@ function getStyles(isDark: boolean) {
       backgroundColor: isDark ? "#1a2640" : "#fff0f1",
     },
     locationBanner: {
-      marginHorizontal: 18,
-      marginTop: 8,
+      marginHorizontal: layout.screenPadding,
+      marginTop: 10,
       borderRadius: 12,
       borderWidth: 1,
-      borderColor: isDark ? "#3a2f14" : "#ffd6db",
+      borderColor: isDark ? "#4a2230" : "#ffd6db",
       backgroundColor: isDark ? "rgba(255, 90, 106, 0.12)" : "#fff1f2",
       paddingHorizontal: 12,
-      paddingVertical: 10,
+      paddingVertical: 8,
       flexDirection: "row",
       alignItems: "center",
       gap: 8,
@@ -435,109 +473,79 @@ function getStyles(isDark: boolean) {
       fontSize: 12,
       fontWeight: "700",
       color: isDark ? "#ffc4cb" : colors.brand,
-      lineHeight: 18,
+      lineHeight: 17,
     },
-    locationHint: {
-      marginHorizontal: 18,
-      marginTop: 8,
-      fontSize: 12,
-      color: colors.inkSoft,
+    locationHint: { marginHorizontal: layout.screenPadding, marginTop: 8, fontSize: 12, color: colors.inkSoft },
+    sectionRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 14,
+      marginBottom: 8,
+      marginHorizontal: layout.screenPadding,
     },
     sectionTitle: {
-      marginTop: 6,
-      marginHorizontal: 18,
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: "800",
       color: colors.inkSoft,
       textTransform: "uppercase",
-      letterSpacing: 0.8,
+      letterSpacing: 1,
     },
-    tabRow: {
+    viewAll: { fontSize: 13, fontWeight: "800", color: colors.brand },
+    cityRow: { paddingHorizontal: layout.screenPadding, gap: 10, paddingBottom: 4 },
+    cityTab: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "center",
-      paddingHorizontal: 18,
-      paddingTop: 0,
-      paddingBottom: 0,
-      gap: 12,
-      minWidth: "100%",
-    },
-    cityRowScroll: {
-      minHeight: 86,
-    },
-    cityTab: {
-      minWidth: 110,
-      flexShrink: 0,
-      alignItems: "center",
-      justifyContent: "center",
-      paddingHorizontal: 12,
+      gap: 10,
+      minWidth: 132,
+      paddingHorizontal: 10,
       paddingVertical: 8,
       borderRadius: 14,
-      borderWidth: 1,
+      borderWidth: 1.5,
       borderColor: colors.border,
       backgroundColor: colors.surface,
     },
-    cityTabNearYou: {
+    cityTabSelected: {
       borderColor: colors.brand,
       backgroundColor: isDark ? "#2a1820" : "#fff7f8",
     },
-    cityTabInner: {
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 6,
-    },
     cityIconWrap: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
+      width: 36,
+      height: 36,
+      borderRadius: 10,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: isDark ? "#1c2a45" : "#fff3f4",
+      backgroundColor: isDark ? "#1c2a45" : "#f1f3f8",
     },
-    cityIconWrapNearYou: {
-      backgroundColor: isDark ? "#4a2230" : "#ffe7ea",
-    },
-    cityIconImage: { width: 16, height: 16 },
+    cityIconWrapSelected: { backgroundColor: isDark ? "#4a2230" : "#ffe7ea" },
+    cityIconImage: { width: 22, height: 22 },
+    cityTextWrap: { flexShrink: 1 },
+    cityTabText: { fontSize: 14, fontWeight: "800", color: colors.ink },
+    citySub: { fontSize: 10, fontWeight: "700", color: colors.inkSoft, marginTop: 1 },
+    citySubNear: { color: colors.brand, letterSpacing: 0.5 },
     pressed: { opacity: 0.9 },
-    cityTabText: {
-      fontSize: 13,
-      fontWeight: "700",
-      color: colors.ink,
-      textAlign: "center",
-    },
-    cityTabTextNearYou: {
-      color: colors.brand,
-    },
-    nearYouBadge: {
-      fontSize: 10,
-      fontWeight: "800",
-      color: colors.brand,
-      textTransform: "uppercase",
-      letterSpacing: 0.4,
-    },
     empty: { textAlign: "center", color: colors.inkSoft, marginTop: 24 },
-    eventTabRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      backgroundColor: colors.surface,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
+    tabBar: {
+      marginTop: 12,
+      backgroundColor: isDark ? "#0d1322" : "#f4f6fa",
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
+    eventTabRow: { paddingHorizontal: layout.screenPadding - 4 },
     eventTab: {
+      minHeight: 44,
       alignItems: "center",
-      paddingVertical: 12,
+      justifyContent: "center",
       paddingHorizontal: 14,
-      borderBottomWidth: 2,
+      borderBottomWidth: 3,
       borderBottomColor: "transparent",
     },
     eventTabActive: { borderBottomColor: colors.brand },
-    eventTabText: { fontSize: 11, fontWeight: "700", color: colors.inkSoft },
+    eventTabText: { fontSize: 14, fontWeight: "700", color: colors.inkSoft },
     eventTabTextActive: { color: colors.brand },
-    eventsWrap: {},
-    eventsContent: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 20, gap: 10 },
+    eventsWrap: { flex: 1 },
+    eventsContent: { paddingBottom: 24 },
+    eventsBody: { paddingHorizontal: layout.screenPadding, paddingTop: 14, gap: 10 },
     eventCard: {
       borderRadius: 12,
       borderWidth: 1,
@@ -548,31 +556,47 @@ function getStyles(isDark: boolean) {
     },
     eventTitle: { fontSize: 14, fontWeight: "700", color: colors.ink },
     eventMeta: { fontSize: 12, color: colors.inkSoft },
-    thumbCard: {
-      width: "48%",
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      overflow: "hidden",
-    },
     cardsGrid: {
       flexDirection: "row",
       flexWrap: "wrap",
       justifyContent: "space-between",
-      gap: 10,
+      rowGap: 12,
     },
-    thumbImage: { width: "100%", height: 120, backgroundColor: isDark ? "#1f304f" : "#e8edf8" },
+    thumbCard: {
+      width: "48.5%",
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      overflow: "hidden",
+      shadowColor: "#000",
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+    },
+    thumbImage: { width: "100%", height: 124, backgroundColor: isDark ? "#1f304f" : "#e8edf8" },
     thumbFallback: {
       width: "100%",
-      height: 120,
+      height: 124,
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: isDark ? "#1b2a46" : "#edf3ff",
     },
-    thumbBody: { paddingHorizontal: 12, paddingVertical: 10, gap: 4, flex: 1 },
-    thumbTitle: { fontSize: 14, fontWeight: "800", color: colors.ink },
+    typeBadge: {
+      position: "absolute",
+      left: 8,
+      top: 8,
+      maxWidth: "80%",
+      borderRadius: 8,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      backgroundColor: "rgba(17,20,29,0.72)",
+    },
+    typeBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+    thumbBody: { padding: 10, gap: 4 },
+    thumbTitle: { fontSize: 14, fontWeight: "800", color: colors.ink, lineHeight: 18, minHeight: 36 },
     thumbMeta: { fontSize: 11, color: colors.inkSoft },
+    codePill: { alignSelf: "flex-start", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginTop: 2 },
+    codePillText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.4 },
     modalOverlay: {
       flex: 1,
       backgroundColor: "rgba(0,0,0,0.45)",

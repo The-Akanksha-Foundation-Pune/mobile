@@ -10,6 +10,7 @@ import type {
   EventStatus,
   EventType,
   MediaMode,
+  ProfileUpdate,
   SelectedMedia,
   User,
 } from "../types/app";
@@ -173,6 +174,16 @@ export async function fetchCurrentUser(token: string): Promise<User> {
     headers: authHeaders(token),
   });
   return parseJson<User>(response, "Session is invalid.");
+}
+
+export async function updateProfile(token: string, update: ProfileUpdate): Promise<User> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/auth/me`, {
+    method: "PATCH",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify(update),
+  });
+  return parseJson<User>(response, "Failed to update profile.");
 }
 
 export async function fetchEventBootstrap(token: string): Promise<{

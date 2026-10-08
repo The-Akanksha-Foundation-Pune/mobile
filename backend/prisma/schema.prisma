@@ -34,7 +34,14 @@ model User {
   profileImage  String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  cityId        String?
+  city          City?       @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  costCenterId  String?
+  costCenter    CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
   uploadedEvents Event[]
+
+  @@index([cityId])
+  @@index([costCenterId])
 }
 
 model EventType {
@@ -56,6 +63,7 @@ model City {
   costCenters      CostCenter[]
   events           Event[]
   calendarEntries  CalendarEntry[]
+  users            User[]
 }
 
 model CostCenter {
@@ -74,6 +82,7 @@ model CostCenter {
   events           Event[]
   calendarEntries  CalendarEntry[]
   notifications    DonorNotification[]
+  users            User[]
 
   @@index([cityId])
 }

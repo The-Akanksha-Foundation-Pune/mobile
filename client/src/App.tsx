@@ -19,13 +19,14 @@ import { citiesWithCostCenters } from "./config/cities";
 import {
   fetchCities,
   fetchCostCenters,
+  updateProfile,
   fetchCurrentUser,
   fetchEventBootstrap,
   signInWithGoogle,
   uploadEvent,
 } from "./services/api";
 import { getDummyCostCenters, USE_DUMMY_HUB_DATA } from "./data/dummyHubData";
-import type { City, CostCenter, EventItem, EventType, MediaMode, SelectedMedia, User } from "./types/app";
+import type { City, CostCenter, EventItem, EventType, MediaMode, ProfileUpdate, SelectedMedia, User } from "./types/app";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -394,6 +395,12 @@ export default function App() {
     }
   }
 
+  async function handleUpdateProfile(update: ProfileUpdate): Promise<User> {
+    const updated = await updateProfile(token, update);
+    setUser(updated);
+    return updated;
+  }
+
   function handleLogout() {
     if (Platform.OS === "web") {
       window.localStorage.removeItem(WEB_AUTH_TOKEN_KEY);
@@ -466,6 +473,7 @@ export default function App() {
       onChangeEventLocation={setEventLocation}
       onCaptureMedia={handleCaptureFromCamera}
       onSaveEvent={handleSubmitEvent}
+      onUpdateProfile={handleUpdateProfile}
     />
   );
 }

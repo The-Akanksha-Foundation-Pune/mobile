@@ -5,6 +5,18 @@ export type User = {
   name: string;
   email: string;
   role: string;
+  cityId?: string | null;
+  cityName?: string;
+  cityState?: string;
+  costCenterId?: string | null;
+  costCenterCode?: string;
+  costCenterName?: string;
+};
+
+export type ProfileUpdate = {
+  name?: string;
+  cityId?: string | null;
+  costCenterId?: string | null;
 };
 
 export type EventType = {

@@ -1,23 +1,25 @@
 import { useMemo, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View, useColorScheme } from "react-native";
+import { Alert, Platform, StyleSheet, Text, View, useColorScheme } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { AppButton } from "../components";
+import { BottomNav } from "../components";
+import type { BottomNavItem } from "../components";
 import type {
   City,
   CostCenter,
   EventItem,
   EventType,
   MediaMode,
+  ProfileUpdate,
   SelectedMedia,
   User,
 } from "../types/app";
 import { darkPalette, palette } from "../theme/theme";
 import { AddEventScreen } from "./AddEventScreen";
+import { ActivityScreen } from "./ActivityScreen";
+import { ProfileScreen } from "./ProfileScreen";
 import { AdminScreen } from "./AdminScreen";
 import { CityPickerScreen } from "./CityPickerScreen";
-import { CostCenterPickerScreen } from "./CostCenterPickerScreen";
 import { EventsHubScreen } from "./EventsHubScreen";
 
 type HomeScreenProps = {
@@ -44,9 +46,10 @@ type HomeScreenProps = {
   onChangeEventLocation: (next: string) => void;
   onCaptureMedia: () => void;
   onSaveEvent: (costCenterId: string | null, cityId?: string | null) => Promise<boolean>;
+  onUpdateProfile: (update: ProfileUpdate) => Promise<User>;
 };
 
-type OverlayScreen = "add" | "admin" | "profile" | null;
+type OverlayScreen = "add" | "admin" | "profile" | "activity" | null;
 
 export function HomeScreen(props: HomeScreenProps) {
   const {
@@ -73,28 +76,96 @@ export function HomeScreen(props: HomeScreenProps) {
     onChangeEventLocation,
     onCaptureMedia,
     onSaveEvent,
+    onUpdateProfile,
   } = props;
 
   const [selectedCity, setSelectedCity] = useState<City | null>(null);
   const [selectedCostCenter, setSelectedCostCenter] = useState<CostCenter | null>(null);
   const [skippedCostCenter, setSkippedCostCenter] = useState(false);
+  const [filterCityId, setFilterCityId] = useState<string | null>(user.cityId ?? null);
   const [overlay, setOverlay] = useState<OverlayScreen>(null);
   const isDark = useColorScheme() === "dark";
   const styles = useMemo(() => getStyles(isDark), [isDark]);
   const colors = isDark ? darkPalette : palette;
   const isAdmin = Platform.OS === "web" && user.role === "admin";
 
-  const costCentersForCity = useMemo(() => {
-    if (!selectedCity) return [];
-    return costCenters.filter((cc) => cc.cityId === selectedCity.id);
-  }, [costCenters, selectedCity]);
+  const navItems: BottomNavItem[] = [
+    { id: "home", label: "Feed", icon: "newspaper-outline", activeIcon: "newspaper" },
+    { id: "events", label: "Events", icon: "calendar-outline", activeIcon: "calendar" },
+    { id: "add", label: "Add event", icon: "add", primary: true },
+    { id: "activity", label: "Activity", icon: "bar-chart-outline", activeIcon: "bar-chart" },
+    { id: "account", label: "Profile", icon: "person-outline", activeIcon: "person" },
+  ];
 
-  if (overlay === "add" && selectedCity && (selectedCostCenter || skippedCostCenter)) {
+  const filterCity = cities.find((city) => city.id === filterCityId) ?? null;
+  const addCity = selectedCity ?? filterCity ?? cities[0] ?? null;
+  const userCostCenter = costCenters.find((center) => center.id === user.costCenterId) ?? null;
+  // Prefer the cost center picked in this session, else the user's saved one if it fits the city.
+  const addCostCenter =
+    (selectedCity ? selectedCostCenter : null) ??
+    (userCostCenter && addCity && userCostCenter.cityId === addCity.id ? userCostCenter : null);
+
+  async function handleSaveProfile(update: ProfileUpdate) {
+    const updated = await onUpdateProfile(update);
+    if (update.cityId !== undefined) setFilterCityId(updated.cityId ?? null);
+  }
+
+  function goHome() {
+    setOverlay(null);
+    setSelectedCostCenter(null);
+    setSkippedCostCenter(false);
+    setSelectedCity(null);
+  }
+
+  function handleNavSelect(id: string) {
+    if (id === "home") {
+      goHome();
+    } else if (id === "events") {
+      const city = filterCity ?? cities[0] ?? null;
+      if (!city) return;
+      setOverlay(null);
+      setSelectedCostCenter(null);
+      setSkippedCostCenter(true);
+      setSelectedCity(city);
+    } else if (id === "add") {
+      if (!addCity) {
+        Alert.alert("No city available", "Cities have not loaded yet. Try again in a moment.");
+        return;
+      }
+      setOverlay("add");
+    } else if (id === "activity") {
+      setOverlay("activity");
+    } else if (id === "account") {
+      setOverlay("profile");
+    }
+  }
+
+  function activeNavId() {
+    if (overlay === "profile") return "account";
+    if (overlay === "activity") return "activity";
+    if (selectedCity) return "events";
+    return "home";
+  }
+
+  function withNav(content: React.ReactNode) {
+    return (
+      <View style={styles.shell}>
+        <View style={styles.shellBody}>{content}</View>
+        <BottomNav
+          items={navItems}
+          activeId={activeNavId()}
+          onSelect={handleNavSelect}
+        />
+      </View>
+    );
+  }
+
+  if (overlay === "add" && addCity) {
     return (
       <AddEventScreen
         token={token}
-        city={selectedCity}
-        costCenter={selectedCostCenter}
+        city={addCity}
+        costCenter={addCostCenter}
         eventTypes={eventTypes}
         selectedTypeId={selectedTypeId}
         eventTitle={eventTitle}
@@ -112,7 +183,7 @@ export function HomeScreen(props: HomeScreenProps) {
         onChangeLocation={onChangeEventLocation}
         onCaptureMedia={onCaptureMedia}
         onSaveEvent={async () => {
-          const ok = await onSaveEvent(selectedCostCenter?.id ?? null, selectedCity.id);
+          const ok = await onSaveEvent(addCostCenter?.id ?? null, addCity.id);
           if (ok) setOverlay(null);
         }}
       />
@@ -123,45 +194,45 @@ export function HomeScreen(props: HomeScreenProps) {
     return <AdminScreen token={token} onClose={() => setOverlay(null)} />;
   }
 
+  if (overlay === "activity") {
+    return withNav(
+      <>
+        <ActivityScreen events={events} userId={user.id} onBack={() => setOverlay(null)} />
+        <StatusBar style="light" />
+      </>
+    );
+  }
+
   if (overlay === "profile") {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.profileHeader}>
-          <Pressable onPress={() => setOverlay(null)}>
-            <Ionicons name="arrow-back" size={22} color={colors.ink} />
-          </Pressable>
-          <Text style={styles.profileTitle}>Profile</Text>
-          <View style={{ width: 22 }} />
-        </View>
-        <View style={styles.profileBody}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{user.name.slice(0, 1).toUpperCase()}</Text>
-          </View>
-          <Text style={styles.name}>{user.name}</Text>
-          <Text style={styles.email}>{user.email}</Text>
-          <Text style={styles.role}>Role: {user.role}</Text>
-          {selectedCity ? <Text style={styles.meta}>City: {selectedCity.name}</Text> : null}
-          {selectedCostCenter ? (
-            <Text style={styles.meta}>
-              Cost center: {selectedCostCenter.name} ({selectedCostCenter.code})
-            </Text>
-          ) : null}
-          <AppButton label="Logout" variant="secondary" iconName="log-out-outline" onPress={onLogout} />
-        </View>
-        <StatusBar style={isDark ? "light" : "dark"} />
-      </SafeAreaView>
+    return withNav(
+      <>
+        <ProfileScreen
+          user={user}
+          events={events}
+          cities={cities}
+          costCenters={costCenters}
+          isAdmin={isAdmin}
+          onBack={() => setOverlay(null)}
+          onOpenAdmin={() => setOverlay("admin")}
+          onSave={handleSaveProfile}
+          onLogout={onLogout}
+        />
+        <StatusBar style="light" />
+      </>
     );
   }
 
   if (!selectedCity) {
-    return (
+    return withNav(
       <>
         <CityPickerScreen
           cities={cities}
           costCenters={costCenters}
           events={events}
           userName={user.name}
-          onSelectCity={setSelectedCity}
+          selectedCityId={filterCityId}
+          onSelectCity={(city) => setFilterCityId((current) => (current === city.id ? null : city.id))}
+          onClearCity={() => setFilterCityId(null)}
           onOpenProfile={() => setOverlay("profile")}
         />
         <StatusBar style="light" />
@@ -169,44 +240,16 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  if (!selectedCostCenter && !skippedCostCenter) {
-    return (
-      <>
-        <CostCenterPickerScreen
-          selectedCity={selectedCity}
-          costCenters={costCentersForCity}
-          userName={user.name}
-          onBack={() => setSelectedCity(null)}
-          onSelectCostCenter={setSelectedCostCenter}
-          onSkip={() => setSkippedCostCenter(true)}
-        />
-        <StatusBar style="light" />
-      </>
-    );
-  }
-
-  return (
+  return withNav(
     <>
       <EventsHubScreen
         token={token}
         city={selectedCity}
         costCenter={selectedCostCenter}
         isAdmin={isAdmin}
-        onGoHome={() => {
-          setOverlay(null);
-          setSelectedCostCenter(null);
-          setSkippedCostCenter(false);
-          setSelectedCity(null);
-        }}
-        onChangeCity={() => {
-          setSelectedCostCenter(null);
-          setSkippedCostCenter(false);
-          setSelectedCity(null);
-        }}
-        onChangeCostCenter={() => {
-          setSelectedCostCenter(null);
-          setSkippedCostCenter(false);
-        }}
+        onGoHome={goHome}
+        onChangeCity={goHome}
+        onChangeCostCenter={goHome}
         onOpenAdd={() => setOverlay("add")}
         onOpenAdmin={() => setOverlay("admin")}
         onOpenProfile={() => setOverlay("profile")}
@@ -219,31 +262,8 @@ export function HomeScreen(props: HomeScreenProps) {
 function getStyles(isDark: boolean) {
   const colors = isDark ? darkPalette : palette;
   return StyleSheet.create({
+    shell: { flex: 1, backgroundColor: isDark ? "#0d1322" : "#f4f6fa" },
+    shellBody: { flex: 1 },
     safe: { flex: 1, backgroundColor: isDark ? "#0d1322" : "#f4f6fa" },
-    profileHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      backgroundColor: colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    profileTitle: { fontSize: 16, fontWeight: "800", color: colors.ink },
-    profileBody: { padding: 20, gap: 10, alignItems: "flex-start" },
-    avatar: {
-      width: 56,
-      height: 56,
-      borderRadius: 28,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: isDark ? "#253961" : "#e7efff",
-    },
-    avatarText: { fontSize: 24, fontWeight: "800", color: isDark ? "#c5d9ff" : "#2f57ca" },
-    name: { fontSize: 22, fontWeight: "800", color: colors.ink },
-    email: { fontSize: 14, color: colors.inkSoft },
-    role: { fontSize: 13, color: colors.inkSoft },
-    meta: { fontSize: 13, color: colors.inkSoft, marginBottom: 8 },
   });
 }
