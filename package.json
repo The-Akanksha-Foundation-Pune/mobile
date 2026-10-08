@@ -18,6 +18,7 @@
     "dev:ios:full": "concurrently -n backend,ios -c blue,green \"npm --prefix backend run dev\" \"npm --prefix client run ios\"",
     "tunnel:ngrok": "ngrok http 4000 --log=stdout",
     "tunnel:start": "node client/scripts/start-ngrok-and-sync.mjs",
+    "dev:phone": "node client/scripts/dev-phone.mjs",
     "api:ngrok": "npm --prefix client run api:ngrok",
     "api:sync-ngrok": "npm --prefix client run api:sync-ngrok",
     "ngrok:auth": "npm --prefix client run ngrok:auth",
