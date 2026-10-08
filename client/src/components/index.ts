@@ -5,3 +5,6 @@ export { EventPosterCard } from "./EventPosterCard";
 export { FormField } from "./FormField";
 export { ScreenHeader } from "./ScreenHeader";
 export { SelectChip } from "./SelectChip";
+export { AppHeader } from "./AppHeader";
+export { BottomNav } from "./BottomNav";
+export type { BottomNavItem } from "./BottomNav";

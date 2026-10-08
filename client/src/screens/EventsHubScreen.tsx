@@ -17,7 +17,9 @@ import { EventCalendar } from "../components/EventCalendar";
 import { EventPosterCard } from "../components/EventPosterCard";
 import { fetchCalendarEntries, fetchEvents } from "../services/api";
 import type { CalendarEntry, City, CostCenter, EventItem, HubTab } from "../types/app";
+import { AppHeader } from "../components";
 import { darkPalette, palette } from "../theme/theme";
+import { layout } from "../theme/layout";
 import {
   getDummyCalendarEntries,
   getDummyCompletedEventsByCity,
@@ -170,53 +172,40 @@ export function EventsHubScreen({
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.topBar}>
-        <View style={styles.selectorRow}>
-          <Pressable style={styles.cityChip} onPress={onChangeCity}>
-            <Ionicons name="business" size={14} color="#fff" />
-            <Text style={styles.cityChipText}>{city.name}</Text>
-            <Ionicons name="chevron-down" size={14} color="#fff" />
-          </Pressable>
-          <Pressable style={styles.cityChip} onPress={onChangeCostCenter}>
-            <Ionicons name="grid" size={14} color="#fff" />
-            <Text style={styles.cityChipText}>{costCenter ? costCenter.code : "All cost centers"}</Text>
-            <Ionicons name="chevron-down" size={14} color="#fff" />
-          </Pressable>
-        </View>
-        <View style={styles.topActions}>
-          <Pressable style={styles.iconBtn} onPress={onGoHome}>
-            <Ionicons name="home-outline" size={20} color="#fff" />
-          </Pressable>
-          {isAdmin ? (
-            <Pressable style={styles.iconBtn} onPress={onOpenAdmin}>
-              <Ionicons name="shield-checkmark-outline" size={20} color="#fff" />
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <AppHeader
+        title={city.name}
+        subtitle={costCenter ? `${costCenter.name} (${costCenter.code})` : "All cost centers"}
+        onBack={onChangeCostCenter}
+        right={
+          isAdmin ? (
+            <Pressable style={styles.iconBtn} onPress={onOpenAdmin} accessibilityLabel="Open admin">
+              <Ionicons name="shield-checkmark-outline" size={22} color="#fff" />
             </Pressable>
-          ) : null}
-          <Pressable style={styles.iconBtn} onPress={onOpenProfile}>
-            <Ionicons name="person-circle-outline" size={22} color="#fff" />
-          </Pressable>
-        </View>
-      </View>
+          ) : null
+        }
+      />
 
-      <View style={styles.tabRow}>
-        {(
-          [
-            { id: "feed", label: "Feed" },
-            { id: "ongoing", label: "Ongoing" },
-            { id: "upcoming", label: "Upcoming" },
-            { id: "capture", label: "CaptureAkanksha" },
-            { id: "calendar", label: "Calendar" },
-          ] as Array<{ id: HubTab; label: string }>
-        ).map((tab) => (
-          <Pressable
-            key={tab.id}
-            style={[styles.tab, activeTab === tab.id && styles.tabActive]}
-            onPress={() => setActiveTab(tab.id)}
-          >
-            <Text style={[styles.tabText, activeTab === tab.id && styles.tabTextActive]}>{tab.label}</Text>
-          </Pressable>
-        ))}
+      <View style={styles.tabBar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
+          {(
+            [
+              { id: "feed", label: "Feed" },
+              { id: "ongoing", label: "Ongoing" },
+              { id: "upcoming", label: "Upcoming" },
+              { id: "capture", label: "CaptureAkanksha" },
+              { id: "calendar", label: "Calendar" },
+            ] as Array<{ id: HubTab; label: string }>
+          ).map((tab) => (
+            <Pressable
+              key={tab.id}
+              style={[styles.tab, activeTab === tab.id && styles.tabActive]}
+              onPress={() => setActiveTab(tab.id)}
+            >
+              <Text style={[styles.tabText, activeTab === tab.id && styles.tabTextActive]}>{tab.label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -421,51 +410,31 @@ function getStyles(isDark: boolean) {
   const colors = isDark ? darkPalette : palette;
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: isDark ? "#0d1322" : "#f4f6fa" },
-    topBar: {
-      backgroundColor: colors.brand,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 8,
-    },
-    selectorRow: {
-      flex: 1,
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 8,
-    },
-    cityChip: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      borderRadius: 999,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      backgroundColor: "rgba(255,255,255,0.16)",
-    },
-    cityChipText: { color: "#fff", fontWeight: "800", fontSize: 14 },
-    topActions: { flexDirection: "row", gap: 8 },
     iconBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
+      width: layout.touchTarget,
+      height: layout.touchTarget,
+      borderRadius: layout.touchTarget / 2,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: "rgba(255,255,255,0.16)",
     },
-    tabRow: {
-      flexDirection: "row",
+    tabBar: {
       backgroundColor: colors.surface,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
-    tab: { flex: 1, alignItems: "center", paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: "transparent" },
+    tabRow: { paddingHorizontal: 8 },
+    tab: {
+      minHeight: layout.touchTarget,
+      paddingHorizontal: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      borderBottomWidth: 3,
+      borderBottomColor: "transparent",
+    },
     tabActive: { borderBottomColor: colors.brand },
-    tabText: { fontSize: 11, fontWeight: "700", color: colors.inkSoft },
+    tabText: { fontSize: 14, fontWeight: "700", color: colors.inkSoft },
     tabTextActive: { color: colors.brand },
-    content: { padding: 16, paddingBottom: 100, gap: 14 },
+    content: { padding: layout.screenPadding, paddingBottom: 24, gap: 14 },
     loading: { color: colors.inkSoft, fontSize: 12 },
     section: { gap: 10 },
     inlineSection: { gap: 8, marginTop: 12 },

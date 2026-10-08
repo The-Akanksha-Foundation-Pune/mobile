@@ -15,6 +15,7 @@ import {
 } from "../services/api";
 import { filterAllowedCities } from "../config/cities";
 import type { CalendarEntry, City, CostCenter, EventItem, EventStatus } from "../types/app";
+import { AppHeader } from "../components";
 import { darkPalette, palette } from "../theme/theme";
 import { groupCostCentersByCity } from "../utils/costCenterGrouping";
 
@@ -127,15 +128,19 @@ export function AdminScreen({ token, onClose }: AdminScreenProps) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Pressable onPress={onClose}>
-          <Ionicons name="arrow-back" size={22} color={colors.ink} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Admin Console</Text>
-        <Pressable onPress={() => void refresh()}>
-          <Ionicons name="refresh" size={20} color={colors.brand} />
-        </Pressable>
-      </View>
+      <AppHeader
+        title="Admin console"
+        onBack={onClose}
+        right={
+          <Pressable
+            style={styles.refreshBtn}
+            onPress={() => void refresh()}
+            accessibilityLabel="Refresh"
+          >
+            <Ionicons name="refresh" size={22} color="#fff" />
+          </Pressable>
+        }
+      />
 
       <View style={styles.tabRow}>
         {(["events", "calendar", "cities"] as AdminTab[]).map((item) => (
@@ -287,7 +292,13 @@ function getStyles(isDark: boolean) {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
-    headerTitle: { fontSize: 16, fontWeight: "800", color: colors.ink },
+    refreshBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: "center",
+      justifyContent: "center",
+    },
     tabRow: { flexDirection: "row", backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
     tab: { flex: 1, alignItems: "center", paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: "transparent" },
     tabActive: { borderBottomColor: colors.brand },

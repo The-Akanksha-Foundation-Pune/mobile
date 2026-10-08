@@ -3,7 +3,9 @@ import { FlatList, Pressable, StyleSheet, Text, TextInput, View, useColorScheme 
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { City, CostCenter } from "../types/app";
+import { AppHeader } from "../components";
 import { darkPalette, palette } from "../theme/theme";
+import { layout } from "../theme/layout";
 
 type CostCenterPickerScreenProps = {
   selectedCity: City;
@@ -36,21 +38,12 @@ export function CostCenterPickerScreen({
   }, [costCenters, query]);
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.hero}>
-        <Pressable style={styles.backBtn} onPress={onBack} accessibilityLabel="Change city">
-          <Ionicons name="arrow-back" size={22} color="#fff" />
-        </Pressable>
-        <Text style={styles.brand}>CaptureAkanksha</Text>
-        <Text style={styles.greeting}>Hi {userName.split(" ")[0]}, select cost center</Text>
-        <View style={styles.cityBadge}>
-          <Ionicons name="business" size={16} color="#fff" />
-          <Text style={styles.cityBadgeText}>{selectedCity.name}</Text>
-        </View>
-        <Text style={styles.subtitle}>
-          Choose the cost center for events and donor updates in this city
-        </Text>
-      </View>
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <AppHeader title="Select cost center" subtitle={selectedCity.name} onBack={onBack} />
+      <Text style={styles.intro}>
+        Hi {userName.split(" ")[0]}, choose the cost center for events and donor updates, or skip to see
+        everything in {selectedCity.name}.
+      </Text>
 
       <View style={styles.searchWrap}>
         <Ionicons name="search" size={18} color={colors.inkSoft} />
@@ -120,44 +113,17 @@ function getStyles(isDark: boolean) {
   const colors = isDark ? darkPalette : palette;
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: isDark ? "#0d1322" : "#f4f6fa" },
-    hero: {
-      paddingHorizontal: 18,
-      paddingTop: 8,
-      paddingBottom: 14,
-      backgroundColor: colors.brand,
-      borderBottomLeftRadius: 22,
-      borderBottomRightRadius: 22,
-    },
-    backBtn: {
-      alignSelf: "flex-start",
-      marginBottom: 6,
-      padding: 4,
-    },
-    brand: {
-      color: "#fff",
+    intro: {
+      marginHorizontal: layout.screenPadding,
+      marginTop: 12,
       fontSize: 13,
-      fontWeight: "800",
-      letterSpacing: 1,
-      textTransform: "uppercase",
+      lineHeight: 19,
+      color: colors.inkSoft,
     },
-    greeting: { color: "#fff", fontSize: 24, fontWeight: "800", marginTop: 8 },
-    cityBadge: {
-      flexDirection: "row",
-      alignItems: "center",
-      alignSelf: "flex-start",
-      gap: 6,
-      marginTop: 10,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 999,
-      backgroundColor: "rgba(255,255,255,0.2)",
-    },
-    cityBadgeText: { color: "#fff", fontSize: 13, fontWeight: "800" },
-    subtitle: { color: "rgba(255,255,255,0.88)", fontSize: 13, marginTop: 8, lineHeight: 19 },
     searchWrap: {
-      marginHorizontal: 18,
-      marginTop: -18,
-      borderRadius: 14,
+      marginHorizontal: layout.screenPadding,
+      marginTop: 12,
+      borderRadius: layout.radius,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
@@ -170,14 +136,14 @@ function getStyles(isDark: boolean) {
     searchInput: { flex: 1, fontSize: 15, color: colors.ink },
     sectionTitle: {
       marginTop: 14,
-      marginHorizontal: 18,
+      marginHorizontal: layout.screenPadding,
       fontSize: 13,
       fontWeight: "800",
       color: colors.inkSoft,
       textTransform: "uppercase",
       letterSpacing: 0.8,
     },
-    list: { paddingHorizontal: 18, paddingBottom: 24, paddingTop: 6, gap: 8 },
+    list: { paddingHorizontal: layout.screenPadding, paddingBottom: 24, paddingTop: 6, gap: 8 },
     row: {
       flexDirection: "row",
       alignItems: "center",

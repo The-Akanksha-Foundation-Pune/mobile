@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AppButton, SelectChip } from "../components";
 import { polishEventDescription } from "../services/api";
 import type { City, CostCenter, EventType, MediaMode, SelectedMedia } from "../types/app";
+import { AppHeader } from "../components";
 import { darkPalette, palette } from "../theme/theme";
 
 type AddEventScreenProps = {
@@ -114,13 +115,11 @@ export function AddEventScreen(props: AddEventScreenProps) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Pressable onPress={onClose}>
-          <Ionicons name="arrow-back" size={22} color={colors.ink} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Add event • {costCenter ? costCenter.code : city.name}</Text>
-        <View style={{ width: 22 }} />
-      </View>
+      <AppHeader
+        title="Add event"
+        subtitle={costCenter ? `${city.name} • ${costCenter.code}` : city.name}
+        onBack={onClose}
+      />
 
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.ccHint}>
