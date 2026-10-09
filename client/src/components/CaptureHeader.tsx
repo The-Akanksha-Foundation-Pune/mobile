@@ -15,6 +15,8 @@ type CaptureHeaderProps = {
   /** Replaces the default bell button. */
   right?: ReactNode;
   onNotifications?: () => void;
+  /** Unread count shown as a badge on the bell. */
+  notificationCount?: number;
   /** Shows a ⋮ button after the bell. */
   onMore?: () => void;
 };
@@ -27,6 +29,7 @@ export function CaptureHeader({
   logo,
   right,
   onNotifications,
+  notificationCount = 0,
   onMore,
 }: CaptureHeaderProps) {
   const styles = useMemo(() => getStyles(), []);
@@ -68,9 +71,14 @@ export function CaptureHeader({
               onPress={onNotifications}
               style={({ pressed }) => [styles.bellBtn, pressed && styles.pressed]}
               accessibilityRole="button"
-              accessibilityLabel="Notifications"
+              accessibilityLabel={notificationCount > 0 ? `Notifications, ${notificationCount} unread` : "Notifications"}
             >
               <MaterialCommunityIcons name="bell-outline" size={22} color={c.onSurfaceVariant} />
+              {notificationCount > 0 ? (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{notificationCount > 9 ? "9+" : notificationCount}</Text>
+                </View>
+              ) : null}
             </Pressable>
             {onMore ? (
               <Pressable
@@ -126,6 +134,21 @@ function getStyles() {
       alignItems: "center",
       justifyContent: "center",
     },
+    badge: {
+      position: "absolute",
+      top: 8,
+      right: 8,
+      minWidth: 16,
+      height: 16,
+      paddingHorizontal: 4,
+      borderRadius: 8,
+      borderWidth: 1.5,
+      borderColor: c.surface,
+      backgroundColor: c.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    badgeText: { ...captureType.labelSm, fontSize: 9, lineHeight: 11, letterSpacing: 0, color: c.onPrimary },
     moreBtn: {
       width: 40,
       height: captureLayout.touchTarget,

@@ -1,5 +1,5 @@
-import { ReactNode } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ReactNode, useEffect, useRef, useState } from "react";
+import { Animated, Dimensions, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCaptureTheme } from "../../theme/useCaptureTheme";
@@ -16,13 +16,38 @@ type Props = {
 export function BottomSheet({ visible, onClose, title, subtitle, children }: Props) {
   const { c, type, layout, shadow } = useCaptureTheme();
   const insets = useSafeAreaInsets();
+  // Animate the backdrop and the sheet separately: the dim layer fades in place while only the sheet slides.
+  // (Modal's own "slide" moves the backdrop up with the sheet.)
+  const [mounted, setMounted] = useState(visible);
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) setMounted(true);
+    Animated.timing(progress, {
+      toValue: visible ? 1 : 0,
+      duration: visible ? 260 : 200,
+      easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished && !visible) setMounted(false);
+    });
+  }, [visible, progress]);
+
+  const sheetOffset = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [Dimensions.get("window").height, 0],
+  });
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={mounted} transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.root}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-        <View
+        <Animated.View style={[styles.backdrop, { opacity: progress }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
+        </Animated.View>
+        <Animated.View
           style={[
             styles.sheet,
+            { transform: [{ translateY: sheetOffset }] },
             shadow.level3,
             {
               backgroundColor: c.surfaceCard,
@@ -53,7 +78,7 @@ export function BottomSheet({ visible, onClose, title, subtitle, children }: Pro
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {children}
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
