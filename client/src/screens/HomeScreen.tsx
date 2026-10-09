@@ -28,6 +28,8 @@ import { StoryDetailScreen } from "./StoryDetailScreen";
 import { AdminScreen } from "./AdminScreen";
 import { FeedScreen } from "./FeedScreen";
 import { EventsScreen } from "./EventsScreen";
+import { NotificationsScreen } from "./NotificationsScreen";
+import { useNotifications, type AppNotification } from "../hooks/useNotifications";
 
 type HomeScreenProps = {
   token: string;
@@ -65,7 +67,7 @@ type HomeScreenProps = {
 type DetailRef = { kind: ContentKind; id: string };
 type AddTarget = { kind: ContentKind; parentEvent: EventItem | null };
 
-type OverlayScreen = "add" | "admin" | "profile" | "activity" | "events" | null;
+type OverlayScreen = "add" | "admin" | "profile" | "activity" | "events" | "notifications" | null;
 
 export function HomeScreen(props: HomeScreenProps) {
   const {
@@ -106,6 +108,9 @@ export function HomeScreen(props: HomeScreenProps) {
   const detail = detailStack[detailStack.length - 1] ?? null;
   const [overlay, setOverlay] = useState<OverlayScreen>(null);
   const [activityView, setActivityView] = useState<"mine" | "review">("mine");
+  /** Where the back arrow on the notifications page returns to. */
+  const [notificationsReturn, setNotificationsReturn] = useState<OverlayScreen>(null);
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications(events, user);
   const isDark = useColorScheme() === "dark";
   const styles = useMemo(() => getStyles(isDark), [isDark]);
   const colors = isDark ? darkPalette : palette;
@@ -172,14 +177,29 @@ export function HomeScreen(props: HomeScreenProps) {
   }
 
   function activeNavId() {
-    if (overlay === "profile") return "account";
-    if (overlay === "activity") return "activity";
-    if (overlay === "events") return "events";
+    const current = overlay === "notifications" ? notificationsReturn : overlay;
+    if (current === "profile") return "account";
+    if (current === "activity") return "activity";
+    if (current === "events") return "events";
     return "home";
   }
 
   function showNotifications() {
-    Alert.alert("Notifications", "You have no new notifications.");
+    if (overlay === "notifications") return;
+    setNotificationsReturn(overlay);
+    setDetailStack([]);
+    setOverlay("notifications");
+  }
+
+  function openNotification(notification: AppNotification) {
+    markRead(notification.id);
+    if (notification.target.type === "reviewQueue") {
+      setActivityView("review");
+      setOverlay("activity");
+      return;
+    }
+    // Detail pages sit on top of the notifications page, so back returns here.
+    openDetail(notification.target.kind, notification.target.id);
   }
 
   const eventChoices = events
@@ -261,7 +281,7 @@ export function HomeScreen(props: HomeScreenProps) {
   function withNav(content: React.ReactNode, header: ComponentProps<typeof CaptureHeader> | null = null) {
     return (
       <CaptureLayout
-        header={header ? { ...header, onMore: () => setMenuOpen(true) } : null}
+        header={header ? { ...header, notificationCount: unreadCount, onMore: () => setMenuOpen(true) } : null}
         tabs={{ items: navItems, activeId: activeNavId(), onSelect: handleNavSelect }}
       >
         {content}
@@ -356,6 +376,21 @@ export function HomeScreen(props: HomeScreenProps) {
         <StatusBar style="dark" />
       </>,
       { ...headerBase, title: "Post" }
+    );
+  }
+
+  if (overlay === "notifications") {
+    return withNav(
+      <>
+        <NotificationsScreen
+          notifications={notifications}
+          unreadCount={unreadCount}
+          onOpen={openNotification}
+          onMarkAllRead={markAllRead}
+        />
+        <StatusBar style="dark" />
+      </>,
+      { title: "Notifications", onBack: () => setOverlay(notificationsReturn), right: null }
     );
   }
 
