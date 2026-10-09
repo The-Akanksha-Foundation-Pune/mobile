@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { AppButton, AppCard, AppHeader } from "../components";
+import { AppButton, AppCard, CaptureHeader } from "../components";
 
 type NotFoundScreenProps = {
   onGoHome: () => void;
@@ -13,7 +13,7 @@ export function NotFoundScreen(props: NotFoundScreenProps) {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <AppHeader title="Page not found" onBack={onGoHome} />
+      <CaptureHeader title="Page not found" subtitle="" right={null} onBack={onGoHome} />
       <View style={styles.content}>
         <AppCard>
           <Text style={styles.title}>404</Text>
@@ -22,7 +22,7 @@ export function NotFoundScreen(props: NotFoundScreenProps) {
           <AppButton label="Go to Login" onPress={onGoLogin} variant="secondary" />
         </AppCard>
       </View>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
     </SafeAreaView>
   );
 }

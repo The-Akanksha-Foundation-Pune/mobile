@@ -4,8 +4,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppButton, SelectChip } from "../components";
 import { polishEventDescription } from "../services/api";
-import type { City, CostCenter, EventType, MediaMode, SelectedMedia } from "../types/app";
-import { AppHeader } from "../components";
+import type { City, ContentKind, CostCenter, EventItem, EventType, MediaMode, SelectedMedia } from "../types/app";
+import { CaptureHeader } from "../components";
 import { darkPalette, palette } from "../theme/theme";
 
 type AddEventScreenProps = {
@@ -29,6 +29,11 @@ type AddEventScreenProps = {
   onChangeLocation: (next: string) => void;
   onCaptureMedia: () => void;
   onSaveEvent: () => void | Promise<void>;
+  /** What is being created. Posts and stories can attach to a parent event. */
+  mode?: ContentKind;
+  parentEvent?: EventItem | null;
+  body?: string;
+  onChangeBody?: (next: string) => void;
 };
 
 export function AddEventScreen(props: AddEventScreenProps) {
@@ -53,7 +58,13 @@ export function AddEventScreen(props: AddEventScreenProps) {
     onChangeLocation,
     onCaptureMedia,
     onSaveEvent,
+    mode = "event",
+    parentEvent = null,
+    body = "",
+    onChangeBody,
   } = props;
+  const headerTitle = mode === "post" ? "Add post" : mode === "story" ? "Capture a story" : "Add event";
+  const submitLabel = mode === "post" ? "Submit post" : mode === "story" ? "Publish story" : "Submit event";
 
   const [location, setLocation] = useState("");
   const [isPolishing, setIsPolishing] = useState(false);
@@ -115,19 +126,22 @@ export function AddEventScreen(props: AddEventScreenProps) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppHeader
-        title="Add event"
-        subtitle={costCenter ? `${city.name} • ${costCenter.code}` : city.name}
+      <CaptureHeader
+        right={null}
+        title={headerTitle}
+        subtitle={parentEvent ? parentEvent.title || "Untitled event" : costCenter ? `${city.name} • ${costCenter.code}` : city.name}
         onBack={onClose}
       />
 
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.ccHint}>
-          {costCenter ? `${city.name} • ${costCenter.name} (${costCenter.code})` : `${city.name} • no cost center`} — event type required below
+          {parentEvent
+            ? `Adding to "${parentEvent.title || "Untitled event"}" — date, type and location come from the event`
+            : `${costCenter ? `${city.name} • ${costCenter.name} (${costCenter.code})` : `${city.name} • no cost center`} — event type required below`}
         </Text>
         <TextInput
           style={styles.titleInput}
-          placeholder="Event title"
+          placeholder={mode === "post" ? "Post title (optional)" : mode === "story" ? "Story title" : "Event title"}
           placeholderTextColor={colors.inkSoft}
           value={eventTitle}
           onChangeText={onChangeEventTitle}
@@ -135,7 +149,7 @@ export function AddEventScreen(props: AddEventScreenProps) {
 
         <View style={styles.descriptionCard}>
           <View style={styles.rowBetween}>
-            <Text style={styles.label}>Description</Text>
+            <Text style={styles.label}>{mode === "story" ? "Short excerpt" : "Description"}</Text>
             <Pressable
               style={[styles.polishBtn, (isPolishing || !caption.trim() || isPolishCooldownActive) && styles.disabled]}
               onPress={() => void handlePolishDescription()}
@@ -155,6 +169,20 @@ export function AddEventScreen(props: AddEventScreenProps) {
           />
         </View>
 
+        {mode === "story" ? (
+          <View style={styles.descriptionCard}>
+            <Text style={styles.label}>Story</Text>
+            <TextInput
+              style={[styles.descriptionInput, styles.storyInput]}
+              placeholder="Tell the full story. Blank lines start new paragraphs."
+              placeholderTextColor={colors.inkSoft}
+              value={body}
+              onChangeText={onChangeBody}
+              multiline
+            />
+          </View>
+        ) : null}
+
         <View style={styles.row}>
           <SelectChip label="Photo" iconName="camera-outline" isActive={mediaType === "photo"} onPress={() => onSelectMediaType("photo")} />
           <SelectChip label="Video" iconName="videocam-outline" isActive={mediaType === "video"} onPress={() => onSelectMediaType("video")} />
@@ -166,13 +194,15 @@ export function AddEventScreen(props: AddEventScreenProps) {
           </Text>
         </Pressable>
 
-        <TextInput
-          style={styles.field}
-          value={eventDate}
-          onChangeText={onChangeEventDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={colors.inkSoft}
-        />
+        {!parentEvent ? (
+          <TextInput
+            style={styles.field}
+            value={eventDate}
+            onChangeText={onChangeEventDate}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={colors.inkSoft}
+          />
+        ) : null}
         <TextInput
           style={styles.field}
           value={location}
@@ -181,18 +211,22 @@ export function AddEventScreen(props: AddEventScreenProps) {
           placeholderTextColor={colors.inkSoft}
         />
 
-        <Text style={styles.label}>Event type</Text>
-        <FlatList
-          horizontal
-          data={eventTypes}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <SelectChip label={item.name} isActive={selectedTypeId === item.id} onPress={() => onSelectType(item.id)} />
-          )}
-          contentContainerStyle={styles.typeList}
-        />
+        {!parentEvent ? (
+          <>
+            <Text style={styles.label}>Event type</Text>
+            <FlatList
+              horizontal
+              data={eventTypes}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <SelectChip label={item.name} isActive={selectedTypeId === item.id} onPress={() => onSelectType(item.id)} />
+              )}
+              contentContainerStyle={styles.typeList}
+            />
+          </>
+        ) : null}
 
-        <AppButton label={isLoading ? "Uploading..." : "Submit event"} onPress={onSaveEvent} />
+        <AppButton label={isLoading ? "Uploading..." : submitLabel} onPress={onSaveEvent} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -249,6 +283,7 @@ function getStyles(isDark: boolean) {
     polishText: { color: palette.accent, fontWeight: "700", fontSize: 12 },
     disabled: { opacity: 0.6 },
     descriptionInput: { minHeight: 100, fontSize: 15, color: colors.ink, textAlignVertical: "top" },
+    storyInput: { minHeight: 180, lineHeight: 22 },
     row: { flexDirection: "row", gap: 8 },
     captureBox: {
       borderRadius: 14,

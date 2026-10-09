@@ -27,19 +27,34 @@ const upload = multer({
   },
 });
 
+const CONTENT_KINDS = ["event", "post", "story"];
+
 const createEventSchema = z.object({
-  title: z.string().min(1).max(200),
+  title: z.string().max(200).optional(),
   caption: z.string().min(1).max(500),
-  typeId: z.string().min(1),
-  eventDate: z.string().min(4),
+  typeId: z.string().min(1).optional(),
+  eventDate: z.string().min(4).optional(),
   mediaType: z.enum(["photo", "video"]),
   costCenterId: z.string().min(1).optional(),
   cityId: z.string().min(1).optional(),
   location: z.string().max(300).optional(),
   eventStatus: z.enum(["upcoming", "ongoing", "complete"]).optional(),
-}).refine((data) => data.costCenterId || data.cityId, {
-  message: "Select a cost center or a city.",
+  kind: z.enum(CONTENT_KINDS).optional(),
+  /** Posts and stories attach to an event and inherit its date, type and location. */
+  parentEventId: z.string().min(1).optional(),
+  body: z.string().max(20000).optional(),
+}).refine((data) => data.costCenterId || data.cityId || data.parentEventId, {
+  message: "Select a cost center, a city, or a parent event.",
 });
+
+const eventInclude = {
+  eventType: true,
+  uploadedBy: true,
+  city: true,
+  costCenter: { include: { city: true } },
+  parentEvent: { select: { id: true, title: true } },
+  posts: { select: { kind: true } },
+};
 
 function buildCityFilter(cityId) {
   const id = String(cityId);
@@ -72,13 +87,25 @@ function serializeEvent(item, req) {
     uploadedByName: item.uploadedByName || item.uploadedBy?.name,
     uploadedByEmail: item.uploadedBy?.email,
     createdAt: item.createdAt,
+    reviewStatus: item.reviewStatus,
+    reviewReason: item.reviewReason || null,
+    reviewNote: item.reviewNote || null,
+    reviewedAt: item.reviewedAt ? item.reviewedAt.toISOString() : null,
+    kind: item.kind || "event",
+    parentEventId: item.parentEventId || null,
+    parentTitle: item.parentEvent?.title || null,
+    body: item.body || null,
+    postCount: (item.posts || []).filter((child) => child.kind === "post").length,
+    storyCount: (item.posts || []).filter((child) => child.kind === "story").length,
   };
 }
 
 router.get("/", requireAuth, async (req, res) => {
-  const { typeId, date, cityId, costCenterId, status, gallery } = req.query;
+  const { typeId, date, cityId, costCenterId, status, gallery, kind, parentEventId } = req.query;
 
   const where = {
+    ...(kind ? { kind: String(kind) } : {}),
+    ...(parentEventId ? { parentEventId: String(parentEventId) } : {}),
     ...(typeId ? { typeId: String(typeId) } : {}),
     ...(costCenterId ? { costCenterId: String(costCenterId) } : {}),
     ...(cityId && !costCenterId ? buildCityFilter(cityId) : {}),
@@ -102,12 +129,7 @@ router.get("/", requireAuth, async (req, res) => {
 
   const filtered = await prisma.event.findMany({
     where,
-    include: {
-      eventType: true,
-      uploadedBy: true,
-      city: true,
-      costCenter: { include: { city: true } },
-    },
+    include: eventInclude,
     orderBy: { createdAt: "desc" },
   });
 
@@ -147,6 +169,24 @@ router.get("/grouped", requireAuth, async (req, res) => {
   return res.json(grouped);
 });
 
+/** One event with the posts and stories attached to it. */
+router.get("/:id", requireAuth, async (req, res) => {
+  const event = await prisma.event.findUnique({ where: { id: req.params.id }, include: eventInclude });
+  if (!event) {
+    return res.status(404).json({ message: "Event not found." });
+  }
+  const children = await prisma.event.findMany({
+    where: { parentEventId: event.id },
+    include: eventInclude,
+    orderBy: { createdAt: "desc" },
+  });
+  return res.json({
+    ...serializeEvent(event, req),
+    posts: children.filter((child) => child.kind === "post").map((child) => serializeEvent(child, req)),
+    stories: children.filter((child) => child.kind === "story").map((child) => serializeEvent(child, req)),
+  });
+});
+
 router.post("/", requireAuth, (req, res, next) => {
   upload.single("media")(req, res, (err) => {
     if (err) {
@@ -181,9 +221,28 @@ router.post("/", requireAuth, (req, res, next) => {
     });
   }
 
-  const typeExists = await prisma.eventType.findUnique({
-    where: { id: parsed.data.typeId },
-  });
+  let parent = null;
+  if (parsed.data.parentEventId) {
+    parent = await prisma.event.findUnique({ where: { id: parsed.data.parentEventId } });
+    if (!parent || parent.kind !== "event") {
+      return res.status(404).json({ message: "Parent event not found." });
+    }
+  }
+  const kind = parsed.data.kind || (parent ? "post" : "event");
+  const typeId = parsed.data.typeId || parent?.typeId;
+  const eventDateRaw = parsed.data.eventDate || (parent ? parent.eventDate.toISOString().slice(0, 10) : null);
+  const title = parsed.data.title?.trim() || null;
+  if (!typeId) {
+    return res.status(400).json({ message: "Select an event type." });
+  }
+  if (!eventDateRaw) {
+    return res.status(400).json({ message: "Select an event date." });
+  }
+  if (kind !== "post" && !title) {
+    return res.status(400).json({ message: "Add a title." });
+  }
+
+  const typeExists = await prisma.eventType.findUnique({ where: { id: typeId } });
   if (!typeExists) {
     return res.status(404).json({ message: "Selected event type does not exist." });
   }
@@ -232,14 +291,17 @@ router.post("/", requireAuth, (req, res, next) => {
 
   const nextEvent = await prisma.event.create({
     data: {
-      title: parsed.data.title.trim(),
+      title,
       caption: parsed.data.caption.trim(),
-      typeId: parsed.data.typeId,
-      costCenterId: costCenter ? costCenter.id : null,
-      eventDate: new Date(`${parsed.data.eventDate}T00:00:00.000Z`),
-      cityId: parsed.data.cityId || costCenter?.cityId || null,
-      location: parsed.data.location?.trim() || null,
-      eventStatus: parsed.data.eventStatus || "upcoming",
+      typeId,
+      kind,
+      parentEventId: parent ? parent.id : null,
+      body: parsed.data.body?.trim() || null,
+      costCenterId: costCenter ? costCenter.id : parent?.costCenterId ?? null,
+      eventDate: new Date(`${eventDateRaw}T00:00:00.000Z`),
+      cityId: parsed.data.cityId || costCenter?.cityId || parent?.cityId || null,
+      location: parsed.data.location?.trim() || parent?.location || null,
+      eventStatus: parsed.data.eventStatus || parent?.eventStatus || "upcoming",
       mediaType: parsed.data.mediaType,
       mediaUrl: uploadedFile.mediaUrl,
       mediaDriveFileId: uploadedFile.fileId,
@@ -247,12 +309,7 @@ router.post("/", requireAuth, (req, res, next) => {
       uploadedById: req.user.id,
       uploadedByName: req.user.name,
     },
-    include: {
-      eventType: true,
-      city: true,
-      costCenter: { include: { city: true } },
-      uploadedBy: true,
-    },
+    include: eventInclude,
   });
 
   return res.status(201).json(serializeEvent(nextEvent, req));

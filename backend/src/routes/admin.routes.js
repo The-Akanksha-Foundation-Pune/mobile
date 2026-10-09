@@ -18,6 +18,40 @@ const eventModerationSchema = z.object({
   typeId: z.string().min(1).optional(),
 });
 
+const REVIEW_STATUSES = ["pending", "approved", "changes_requested"];
+
+const reviewSchema = z.object({
+  status: z.enum(REVIEW_STATUSES),
+  reason: z.string().max(120).optional().nullable(),
+  note: z.string().max(2000).optional().nullable(),
+});
+
+const bulkReviewSchema = z.object({
+  eventIds: z.array(z.string().min(1)).min(1).max(100),
+  status: z.enum(REVIEW_STATUSES),
+});
+
+const eventInclude = {
+  eventType: true,
+  uploadedBy: true,
+  city: true,
+  costCenter: { include: { city: true } },
+  parentEvent: { select: { id: true, title: true } },
+};
+
+/** Fields written for any review decision. approvedForGallery stays in sync for older clients. */
+function reviewData({ status, reason, note }, reviewerId) {
+  const requestingChanges = status === "changes_requested";
+  return {
+    reviewStatus: status,
+    approvedForGallery: status === "approved",
+    reviewReason: requestingChanges ? reason?.trim() || null : null,
+    reviewNote: requestingChanges ? note?.trim() || null : null,
+    reviewedById: reviewerId,
+    reviewedAt: new Date(),
+  };
+}
+
 function serializeEvent(item, req) {
   const cityName = item.city?.name || item.costCenter?.city?.name || "";
   return {
@@ -42,6 +76,15 @@ function serializeEvent(item, req) {
     uploadedByEmail: item.uploadedBy?.email,
     createdAt: item.createdAt,
     eventTypeName: item.eventType?.name || "",
+    uploadedByRole: item.uploadedBy?.role || "",
+    reviewStatus: item.reviewStatus,
+    reviewReason: item.reviewReason || null,
+    reviewNote: item.reviewNote || null,
+    reviewedAt: item.reviewedAt ? item.reviewedAt.toISOString() : null,
+    kind: item.kind || "event",
+    parentEventId: item.parentEventId || null,
+    parentTitle: item.parentEvent?.title || null,
+    body: item.body || null,
   };
 }
 
@@ -49,12 +92,7 @@ router.use(requireAuth, requireRole("admin"));
 
 router.get("/events", async (req, res) => {
   const events = await prisma.event.findMany({
-    include: {
-      eventType: true,
-      uploadedBy: true,
-      city: true,
-      costCenter: { include: { city: true } },
-    },
+    include: eventInclude,
     orderBy: { createdAt: "desc" },
   });
   return res.json(events.map((item) => serializeEvent(item, req)));
@@ -97,7 +135,14 @@ router.patch("/events/:id", async (req, res) => {
     data: {
       ...(parsed.data.eventStatus !== undefined ? { eventStatus: parsed.data.eventStatus } : {}),
       ...(parsed.data.approvedForGallery !== undefined
-        ? { approvedForGallery: parsed.data.approvedForGallery }
+        ? {
+            approvedForGallery: parsed.data.approvedForGallery,
+            reviewStatus: parsed.data.approvedForGallery
+              ? "approved"
+              : existing.reviewStatus === "approved"
+                ? "pending"
+                : existing.reviewStatus,
+          }
         : {}),
       ...(parsed.data.costCenterId !== undefined ? { costCenterId: parsed.data.costCenterId } : {}),
       ...(parsed.data.cityId !== undefined ? { cityId: parsed.data.cityId } : {}),
@@ -109,15 +154,39 @@ router.patch("/events/:id", async (req, res) => {
         : {}),
       ...(parsed.data.typeId !== undefined ? { typeId: parsed.data.typeId } : {}),
     },
-    include: {
-      eventType: true,
-      uploadedBy: true,
-      city: true,
-      costCenter: { include: { city: true } },
-    },
+    include: eventInclude,
   });
 
   return res.json(serializeEvent(updated, req));
+});
+
+router.patch("/events/:id/review", async (req, res) => {
+  const parsed = reviewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid review payload." });
+  }
+  const existing = await prisma.event.findUnique({ where: { id: req.params.id } });
+  if (!existing) {
+    return res.status(404).json({ message: "Event not found." });
+  }
+  const updated = await prisma.event.update({
+    where: { id: req.params.id },
+    data: reviewData(parsed.data, req.user.id),
+    include: eventInclude,
+  });
+  return res.json(serializeEvent(updated, req));
+});
+
+router.post("/events/bulk-review", async (req, res) => {
+  const parsed = bulkReviewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid bulk review payload." });
+  }
+  const result = await prisma.event.updateMany({
+    where: { id: { in: parsed.data.eventIds } },
+    data: reviewData({ status: parsed.data.status }, req.user.id),
+  });
+  return res.json({ updated: result.count });
 });
 
 router.post("/events/:id/notify-donors", async (req, res) => {

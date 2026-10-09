@@ -15,7 +15,7 @@ import {
 } from "../services/api";
 import { filterAllowedCities } from "../config/cities";
 import type { CalendarEntry, City, CostCenter, EventItem, EventStatus } from "../types/app";
-import { AppHeader } from "../components";
+import { CaptureHeader } from "../components";
 import { darkPalette, palette } from "../theme/theme";
 import { groupCostCentersByCity } from "../utils/costCenterGrouping";
 
@@ -128,7 +128,8 @@ export function AdminScreen({ token, onClose }: AdminScreenProps) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppHeader
+      <CaptureHeader
+        subtitle=""
         title="Admin console"
         onBack={onClose}
         right={
@@ -137,7 +138,7 @@ export function AdminScreen({ token, onClose }: AdminScreenProps) {
             onPress={() => void refresh()}
             accessibilityLabel="Refresh"
           >
-            <Ionicons name="refresh" size={22} color="#fff" />
+            <Ionicons name="refresh" size={22} color={isDark ? "#edf0ff" : "#141b2c"} />
           </Pressable>
         }
       />

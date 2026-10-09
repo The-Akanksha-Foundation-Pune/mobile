@@ -1,109 +1,92 @@
-import { useMemo } from "react";
-import { FlatList, Image, StyleSheet, Text, View, useColorScheme } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { useMemo, useState } from "react";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { AppHeader } from "../components";
+import { ContentCard, EmptyState, PillTabs } from "../components/capture";
 import type { EventItem } from "../types/app";
-import { darkPalette, palette } from "../theme/theme";
-import { layout } from "../theme/layout";
+import { useCaptureTheme, type CaptureColors } from "../theme/useCaptureTheme";
+import { contentKindOf } from "../utils/eventPresenters";
 
-type ActivityScreenProps = {
+type ContentType = "all" | "event" | "post" | "story";
+
+const TYPE_TABS: { id: ContentType; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "event", label: "Events" },
+  { id: "post", label: "Posts" },
+  { id: "story", label: "Stories" },
+];
+
+const WINDOW_DAYS = 30;
+
+type Props = {
   events: EventItem[];
   userId: string;
-  onBack: () => void;
+  onOpenEvent?: (event: EventItem) => void;
+  onCreate?: () => void;
 };
 
-/** The signed-in user's own uploads, newest first, with their review status. */
-export function ActivityScreen({ events, userId, onBack }: ActivityScreenProps) {
-  const isDark = useColorScheme() === "dark";
-  const styles = useMemo(() => getStyles(isDark), [isDark]);
-  const colors = isDark ? darkPalette : palette;
+/** My activity: everything the signed-in user has uploaded in the last 30 days. */
+export function ActivityScreen({ events, userId, onOpenEvent, onCreate }: Props) {
+  const { c, type } = useCaptureTheme();
+  const styles = useMemo(() => getStyles(c), [c]);
+  const [contentType, setContentType] = useState<ContentType>("all");
 
-  const mine = useMemo(
-    () =>
-      events
-        .filter((event) => event.uploadedBy === userId)
-        .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")),
-    [events, userId]
-  );
+  const mine = useMemo(() => {
+    const since = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    return events
+      .filter((event) => event.uploadedBy === userId && new Date(event.createdAt).getTime() >= since)
+      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  }, [events, userId]);
+
+  const counts = useMemo(() => {
+    const base: Record<ContentType, number> = { all: mine.length, event: 0, post: 0, story: 0 };
+    for (const event of mine) base[contentKindOf(event)] += 1;
+    return base;
+  }, [mine]);
+
+  const visible = contentType === "all" ? mine : mine.filter((event) => contentKindOf(event) === contentType);
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      <AppHeader
-        title="My activity"
-        subtitle={`${mine.length} upload${mine.length === 1 ? "" : "s"}`}
-        onBack={onBack}
-      />
-      <FlatList
-        data={mine}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Ionicons name="images-outline" size={40} color={colors.inkSoft} />
-            <Text style={styles.emptyTitle}>Nothing here yet</Text>
-            <Text style={styles.emptyText}>Events you add will show up here with their review status.</Text>
+    <SafeAreaView style={styles.safe} edges={[]}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Text style={[type.bodySm, { color: c.onSurfaceVariant }]}>Your uploads from the last {WINDOW_DAYS} days</Text>
+
+        <PillTabs
+          tabs={TYPE_TABS.map((tab) => ({ ...tab, count: counts[tab.id] }))}
+          activeId={contentType}
+          onSelect={(id) => setContentType(id as ContentType)}
+          variant="inverse"
+          size="md"
+        />
+
+        {visible.length === 0 ? (
+          <EmptyState
+            icon="history"
+            title="Nothing here yet"
+            message={
+              mine.length === 0
+                ? `You haven't shared anything in the last ${WINDOW_DAYS} days.`
+                : "No uploads of this type in the last month."
+            }
+            actionLabel={mine.length === 0 && onCreate ? "Capture something" : undefined}
+            actionIcon="plus"
+            onAction={onCreate}
+          />
+        ) : (
+          <View style={styles.list}>
+            {visible.map((event) => (
+              <ContentCard key={event.id} item={event} onPress={onOpenEvent ? () => onOpenEvent(event) : undefined} />
+            ))}
           </View>
-        }
-        renderItem={({ item }) => {
-          const approved = item.approvedForGallery;
-          return (
-            <View style={styles.row}>
-              {item.mediaType === "photo" && item.mediaUrl ? (
-                <Image source={{ uri: item.mediaUrl }} style={styles.thumb} />
-              ) : (
-                <View style={[styles.thumb, styles.thumbFallback]}>
-                  <Ionicons name="videocam-outline" size={22} color={colors.brand} />
-                </View>
-              )}
-              <View style={styles.body}>
-                <Text style={styles.title} numberOfLines={2}>
-                  {item.title || "Untitled event"}
-                </Text>
-                <Text style={styles.meta} numberOfLines={1}>
-                  {item.eventDate} • {item.cityName || item.location || "No location"}
-                </Text>
-                <View style={[styles.chip, approved ? styles.chipOk : styles.chipPending]}>
-                  <Text style={[styles.chipText, approved ? styles.chipTextOk : styles.chipTextPending]}>
-                    {approved ? "Approved" : "Pending review"}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          );
-        }}
-      />
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-function getStyles(isDark: boolean) {
-  const colors = isDark ? darkPalette : palette;
+function getStyles(c: CaptureColors) {
   return StyleSheet.create({
-    safe: { flex: 1, backgroundColor: isDark ? "#0d1322" : "#f4f6fa" },
-    list: { padding: layout.screenPadding, gap: 10, flexGrow: 1 },
-    row: {
-      flexDirection: "row",
-      gap: 12,
-      padding: 10,
-      borderRadius: layout.radius,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-    },
-    thumb: { width: 72, height: 72, borderRadius: 10, backgroundColor: isDark ? "#1f304f" : "#e8edf8" },
-    thumbFallback: { alignItems: "center", justifyContent: "center" },
-    body: { flex: 1, gap: 3, justifyContent: "center" },
-    title: { fontSize: 15, fontWeight: "800", color: colors.ink },
-    meta: { fontSize: 12, color: colors.inkSoft },
-    chip: { alignSelf: "flex-start", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3, marginTop: 2 },
-    chipOk: { backgroundColor: isDark ? "rgba(74,222,128,0.16)" : "#e6f6ec" },
-    chipPending: { backgroundColor: isDark ? "rgba(251,191,36,0.16)" : "#fff4dc" },
-    chipText: { fontSize: 11, fontWeight: "800" },
-    chipTextOk: { color: colors.success },
-    chipTextPending: { color: isDark ? "#fbbf24" : "#b45309" },
-    emptyWrap: { alignItems: "center", gap: 8, marginTop: 80, paddingHorizontal: 24 },
-    emptyTitle: { fontSize: 16, fontWeight: "800", color: colors.ink },
-    emptyText: { fontSize: 13, color: colors.inkSoft, textAlign: "center", lineHeight: 19 },
+    safe: { flex: 1, backgroundColor: c.surface },
+    content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 32, gap: 12 },
+    list: { gap: 16 },
   });
 }

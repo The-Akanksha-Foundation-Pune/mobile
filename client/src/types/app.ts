@@ -57,6 +57,11 @@ export type Donor = {
 
 export type EventStatus = "upcoming" | "ongoing" | "complete";
 
+export type ReviewStatus = "pending" | "approved" | "changes_requested";
+
+/** What a record is: an event (the occasion), or a post or story attached to one. */
+export type ContentKind = "event" | "post" | "story";
+
 export type EventItem = {
   id: string;
   title: string;
@@ -79,7 +84,20 @@ export type EventItem = {
   uploadedByEmail?: string;
   createdAt: string;
   eventTypeName: string;
+  uploadedByRole?: string;
+  reviewStatus?: ReviewStatus;
+  reviewReason?: string | null;
+  reviewNote?: string | null;
+  reviewedAt?: string | null;
+  kind?: ContentKind;
+  parentEventId?: string | null;
+  parentTitle?: string | null;
+  body?: string | null;
+  postCount?: number;
+  storyCount?: number;
 };
+
+export type EventDetail = { event: EventItem; posts: EventItem[]; stories: EventItem[] };
 
 export type CalendarEntry = {
   id: string;

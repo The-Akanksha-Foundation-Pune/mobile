@@ -17,7 +17,6 @@ import { EventCalendar } from "../components/EventCalendar";
 import { EventPosterCard } from "../components/EventPosterCard";
 import { fetchCalendarEntries, fetchEvents } from "../services/api";
 import type { CalendarEntry, City, CostCenter, EventItem, HubTab } from "../types/app";
-import { AppHeader } from "../components";
 import { darkPalette, palette } from "../theme/theme";
 import { layout } from "../theme/layout";
 import {
@@ -172,25 +171,12 @@ export function EventsHubScreen({
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      <AppHeader
-        title={city.name}
-        subtitle={costCenter ? `${costCenter.name} (${costCenter.code})` : "All cost centers"}
-        onBack={onChangeCostCenter}
-        right={
-          isAdmin ? (
-            <Pressable style={styles.iconBtn} onPress={onOpenAdmin} accessibilityLabel="Open admin">
-              <Ionicons name="shield-checkmark-outline" size={22} color="#fff" />
-            </Pressable>
-          ) : null
-        }
-      />
-
+    <SafeAreaView style={styles.safe} edges={[]}>
       <View style={styles.tabBar}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
           {(
             [
-              { id: "feed", label: "Feed" },
+              { id: "feed", label: "All events" },
               { id: "ongoing", label: "Ongoing" },
               { id: "upcoming", label: "Upcoming" },
               { id: "capture", label: "CaptureAkanksha" },

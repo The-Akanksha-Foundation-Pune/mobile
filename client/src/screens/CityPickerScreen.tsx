@@ -117,6 +117,7 @@ export function CityPickerScreen({
   const scopedEvents = useMemo(
     () =>
       events.filter((event) => {
+        if ((event.kind ?? "event") !== "event") return false;
         const eventCityId =
           event.cityId || (event.costCenterId ? costCenterCityById.get(event.costCenterId) : null) || null;
         if (!eventCityId || !visibleCityIds.has(eventCityId)) return false;
@@ -217,7 +218,7 @@ export function CityPickerScreen({
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
+    <SafeAreaView style={styles.safe} edges={[]}>
       <ScrollView
         style={styles.eventsWrap}
         contentContainerStyle={styles.eventsContent}
@@ -225,10 +226,6 @@ export function CityPickerScreen({
         stickyHeaderIndices={[2]}
       >
         <View style={styles.hero}>
-          <View style={styles.brandRow}>
-            <View style={styles.brandDot} />
-            <Text style={styles.brand}>CaptureAkanksha</Text>
-          </View>
           <Text style={styles.greeting}>Hi {userName.split(" ")[0]}, select your city</Text>
           <Text style={styles.subtitle}>Browse events and capture moments across Akanksha</Text>
         </View>

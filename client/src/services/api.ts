@@ -5,12 +5,15 @@ import { resolveEventMediaUrl } from "../utils/mediaUrl";
 import type {
   CalendarEntry,
   City,
+  ContentKind,
+  EventDetail,
   CostCenter,
   EventItem,
   EventStatus,
   EventType,
   MediaMode,
   ProfileUpdate,
+  ReviewStatus,
   SelectedMedia,
   User,
 } from "../types/app";
@@ -227,6 +230,8 @@ export async function fetchCostCenters(token: string): Promise<CostCenter[]> {
 
 export async function fetchEvents(args: {
   token: string;
+  kind?: ContentKind;
+  parentEventId?: string;
   costCenterId?: string;
   cityId?: string;
   status?: EventStatus;
@@ -235,6 +240,8 @@ export async function fetchEvents(args: {
 }): Promise<EventItem[]> {
   const baseUrl = getApiBaseUrl();
   const params = new URLSearchParams();
+  if (args.kind) params.set("kind", args.kind);
+  if (args.parentEventId) params.set("parentEventId", args.parentEventId);
   if (args.costCenterId) params.set("costCenterId", args.costCenterId);
   if (args.cityId) params.set("cityId", args.cityId);
   if (args.status) params.set("status", args.status);
@@ -249,6 +256,16 @@ export async function fetchEvents(args: {
     ...event,
     mediaUrl: resolveEventMediaUrl(event.mediaUrl),
   }));
+}
+
+/** One event plus the posts and stories attached to it. */
+export async function fetchEventDetail(token: string, eventId: string): Promise<EventDetail> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/events/${eventId}`, { headers: authHeaders(token) });
+  const data = await parseJson<EventItem & { posts: EventItem[]; stories: EventItem[] }>(response, "Failed to load event.");
+  const { posts, stories, ...event } = data;
+  const withMedia = (item: EventItem): EventItem => ({ ...item, mediaUrl: resolveEventMediaUrl(item.mediaUrl) });
+  return { event: withMedia(event), posts: posts.map(withMedia), stories: stories.map(withMedia) };
 }
 
 export async function fetchCalendarEntries(args: {
@@ -284,6 +301,32 @@ export async function notifyEventDonors(token: string, eventId: string): Promise
     headers: authHeaders(token, true),
   });
   return parseJson<{ notifiedCount: number }>(response, "Failed to notify donors.");
+}
+
+export type ReviewPayload = { status: ReviewStatus; reason?: string; note?: string };
+
+export async function reviewEvent(token: string, eventId: string, payload: ReviewPayload): Promise<EventItem> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/admin/events/${eventId}/review`, {
+    method: "PATCH",
+    headers: authHeaders(token, true),
+    body: JSON.stringify(payload),
+  });
+  return parseJson<EventItem>(response, "Failed to update review.");
+}
+
+export async function bulkReviewEvents(
+  token: string,
+  eventIds: string[],
+  status: ReviewStatus
+): Promise<{ updated: number }> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/admin/events/bulk-review`, {
+    method: "POST",
+    headers: authHeaders(token, true),
+    body: JSON.stringify({ eventIds, status }),
+  });
+  return parseJson<{ updated: number }>(response, "Failed to update reviews.");
 }
 
 export async function moderateEvent(args: {
@@ -388,28 +431,34 @@ export async function deleteCalendarEntry(token: string, entryId: string): Promi
 
 export async function uploadEvent(args: {
   token: string;
-  title: string;
+  title?: string;
   caption: string;
-  typeId: string;
-  eventDate: string;
+  typeId?: string;
+  eventDate?: string;
   mediaType: MediaMode;
   media: SelectedMedia;
   costCenterId?: string | null;
   cityId?: string;
   location?: string;
+  kind?: ContentKind;
+  parentEventId?: string;
+  body?: string;
 }): Promise<void> {
   const baseUrl = getApiBaseUrl();
-  const { token, title, caption, typeId, eventDate, mediaType, media, costCenterId, cityId, location } = args;
+  const { token, title, caption, typeId, eventDate, mediaType, media, costCenterId, cityId, location, kind, parentEventId, body } = args;
   if (!media) {
     throw new Error("Media is required.");
   }
 
   const formData = new FormData();
-  formData.append("title", title.trim());
+  if (title?.trim()) formData.append("title", title.trim());
   formData.append("caption", caption.trim());
-  formData.append("typeId", typeId);
-  formData.append("eventDate", eventDate);
+  if (typeId) formData.append("typeId", typeId);
+  if (eventDate) formData.append("eventDate", eventDate);
   formData.append("mediaType", mediaType);
+  if (kind) formData.append("kind", kind);
+  if (parentEventId) formData.append("parentEventId", parentEventId);
+  if (body?.trim()) formData.append("body", body.trim());
   if (costCenterId) formData.append("costCenterId", costCenterId);
   if (cityId) formData.append("cityId", cityId);
   if (location?.trim()) formData.append("location", location.trim());

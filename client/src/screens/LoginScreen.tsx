@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -10,12 +10,11 @@ import {
   StyleSheet,
   Text,
   View,
-  useColorScheme,
   useWindowDimensions,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { darkPalette, palette } from "../theme/theme";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { captureFonts } from "../theme/capture";
 
 type LoginScreenProps = {
   isLoading: boolean;
@@ -24,334 +23,272 @@ type LoginScreenProps = {
   onLoginPress: () => void;
 };
 
+type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
+/** Colors from the login design (white page, crimson action, amber accents). */
+const ui = {
+  page: "#ffffff",
+  sheet: "#f9f9ff",
+  ink: "#030712",
+  body: "#4b5563",
+  muted: "#6b7280",
+  border: "#f3f4f6",
+  kicker: "#b50c08",
+  kickerBg: "rgba(254,242,242,0.8)",
+  inspire: "#d97706",
+  button: "#d3271b",
+  buttonPressed: "#b91e13",
+  googleBlue: "#4285F4",
+  calloutBg: "rgba(253,233,214,0.7)",
+  calloutBorder: "#fed6b2",
+  calloutIcon: "#b45309",
+  calloutText: "#451a03",
+  errorBg: "#fef2f2",
+  errorBorder: "#fecaca",
+  errorText: "#b42318",
+};
+
 const CREATIVE_SPARKS = [
   "Every frame can move a classroom.",
   "Your lens turns moments into momentum.",
   "Capture bold. Share what inspires change.",
 ];
 
+const FEATURES: { icon: IconName; label: string; hint: string; bg: string; fg: string }[] = [
+  { icon: "calendar-star", label: "Events", hint: "Plan & track", bg: "#fce4e4", fg: "#ef4444" },
+  { icon: "camera-outline", label: "Posts", hint: "Share moments", bg: "#dcf1fd", fg: "#0ea5e9" },
+  { icon: "book-open-variant", label: "Stories", hint: "Tell journeys", bg: "#fedfb6", fg: "#d97706" },
+];
+
+/** Sign-in: brand header on a white page, sign-in sheet anchored to the bottom. */
 export function LoginScreen({ isLoading, canStartLogin, loginError, onLoginPress }: LoginScreenProps) {
-  const isDark = useColorScheme() === "dark";
+  const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const isCompact = height < 740;
-  const styles = useMemo(() => getStyles(isDark, isCompact), [isDark, isCompact]);
-  const colors = isDark ? darkPalette : palette;
   const disabled = isLoading || !canStartLogin;
   const sparkLine = CREATIVE_SPARKS[new Date().getDate() % CREATIVE_SPARKS.length];
-  const logoScale = useRef(new Animated.Value(0.88)).current;
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const logoFloat = useRef(new Animated.Value(0)).current;
+  const intro = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const useNativeDriver = Platform.OS !== "web";
+    Animated.spring(intro, { toValue: 1, friction: 8, tension: 60, useNativeDriver: Platform.OS !== "web" }).start();
+  }, [intro]);
 
-    Animated.parallel([
-      Animated.spring(logoScale, {
-        toValue: 1,
-        friction: 7,
-        tension: 70,
-        useNativeDriver,
-      }),
-      Animated.timing(logoOpacity, {
-        toValue: 1,
-        duration: 650,
-        useNativeDriver,
-      }),
-    ]).start();
-
-    const floatLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(logoFloat, {
-          toValue: 1,
-          duration: 1800,
-          useNativeDriver,
-        }),
-        Animated.timing(logoFloat, {
-          toValue: 0,
-          duration: 1800,
-          useNativeDriver,
-        }),
-      ])
-    );
-    floatLoop.start();
-    return () => floatLoop.stop();
-  }, [logoFloat, logoOpacity, logoScale]);
-
-  const logoTranslateY = logoFloat.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -6],
+  const rise = (distance: number) => ({
+    opacity: intro,
+    transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [distance, 0] }) }],
   });
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.glowTop} />
-      <View style={styles.glowBottom} />
+    <View style={styles.root}>
+      <View style={[styles.glow, styles.glowAmber]} />
+      <View style={[styles.glow, styles.glowRed]} />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-      >
-        <View style={styles.hero}>
-          <Text style={styles.eyebrow}>CaptureAkanksha</Text>
-          <Text style={styles.headline}>Create.{"\n"}Capture.{"\n"}Inspire.</Text>
-          <Text style={styles.tagline}>
-            A creative space for Akanksha teams to turn real events into stories that spark action.
+      <ScrollView contentContainerStyle={styles.scroll} bounces={false} showsVerticalScrollIndicator={false}>
+        <Animated.View style={[styles.header, { paddingTop: insets.top + (isCompact ? 20 : 40) }, rise(-12)]}>
+          <View style={styles.logoCard}>
+            <Image source={require("../../assets/akanksha-logo.png")} style={[styles.logo, isCompact && styles.logoCompact]} resizeMode="contain" accessibilityLabel="Akanksha. Aspire. Achieve. Be the Change." />
+          </View>
+
+          <Text style={[styles.kicker, { marginTop: isCompact ? 20 : 28 }]}>CAPTUREAKANKSHA</Text>
+          <Text style={[styles.headline, isCompact && styles.headlineCompact]}>
+            Create. Capture.{"\n"}
+            <Text style={{ color: ui.inspire }}>Inspire.</Text>
           </Text>
-        </View>
+          <Text style={styles.subhead}>A creative space for Akanksha teams to turn real events into stories that spark action.</Text>
+        </Animated.View>
 
-        <View style={styles.inspirationCard}>
-          <Ionicons name="color-palette-outline" size={18} color={colors.accent} />
-          <Text style={styles.inspirationText}>{sparkLine}</Text>
-        </View>
+        <Animated.View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }, rise(24)]}>
+          <Text style={styles.welcome}>Welcome</Text>
+          <Text style={styles.sheetSub}>Sign in with your Akanksha Google account to continue.</Text>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.logoButton,
-            pressed && !disabled && styles.logoButtonPressed,
-            disabled && styles.logoButtonDisabled,
-          ]}
-          onPress={onLoginPress}
-          disabled={disabled}
-          accessibilityRole="button"
-          accessibilityLabel="Continue with Google"
-          accessibilityState={{ disabled, busy: isLoading }}
-        >
-          <View style={styles.logoHalo} />
-          <Animated.View
-            style={[
-              styles.logoFrame,
-              {
-                opacity: logoOpacity,
-                transform: [{ scale: logoScale }, { translateY: logoTranslateY }],
-              },
+          <Pressable
+            onPress={onLoginPress}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel="Continue with Google"
+            accessibilityState={{ disabled, busy: isLoading }}
+            style={({ pressed }) => [
+              styles.google,
+              { backgroundColor: pressed ? ui.buttonPressed : ui.button, opacity: disabled && !isLoading ? 0.55 : 1 },
+              pressed && styles.pressed,
             ]}
           >
-            <Image
-              source={require("../../assets/akanksha-logo.png")}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-            {isLoading ? (
-              <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" color="#fff" />
-              </View>
-            ) : null}
-          </Animated.View>
-          <View style={styles.googleRow}>
-            <Ionicons name="logo-google" size={18} color={colors.ink} />
-            <Text style={styles.googleLabel}>
-              {isLoading ? "Opening Google sign-in..." : "Continue with Google"}
-            </Text>
-          </View>
-          <Text style={styles.googleHint}>Tap the logo to begin your creative journey</Text>
-        </Pressable>
-
-        <View style={styles.missionRow}>
-          {["Aspire", "Achieve", "Be The Change"].map((label) => (
-            <View key={label} style={styles.missionPill}>
-              <Text style={styles.missionText}>{label}</Text>
+            <View style={styles.googleBadge}>
+              {isLoading ? (
+                <ActivityIndicator size="small" color={ui.button} />
+              ) : (
+                <MaterialCommunityIcons name="google" size={17} color={ui.googleBlue} />
+              )}
             </View>
-          ))}
-        </View>
+            <Text style={styles.googleLabel}>{isLoading ? "Opening Google sign-in…" : "Continue with Google"}</Text>
+          </Pressable>
 
-        {loginError ? (
-          <View style={styles.errorCard}>
-            <Ionicons name="alert-circle-outline" size={18} color={colors.brand} />
-            <Text style={styles.errorText}>{loginError}</Text>
+          {loginError ? (
+            <View style={styles.error}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={18} color={ui.errorText} />
+              <Text style={styles.errorText}>{loginError}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.callout}>
+            <MaterialCommunityIcons name="lightning-bolt" size={16} color={ui.calloutIcon} />
+            <Text style={styles.calloutText}>{sparkLine}</Text>
           </View>
-        ) : null}
 
-        <Text style={styles.footerNote}>Sign in with your Akanksha Google account to continue.</Text>
+          <View style={styles.features}>
+            {FEATURES.map((feature) => (
+              <View key={feature.label} style={styles.feature}>
+                <View style={[styles.featureIcon, { backgroundColor: feature.bg }]}>
+                  <MaterialCommunityIcons name={feature.icon} size={20} color={feature.fg} />
+                </View>
+                <Text style={styles.featureTitle}>{feature.label}</Text>
+                <Text style={styles.featureHint} numberOfLines={1}>
+                  {feature.hint}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </Animated.View>
       </ScrollView>
 
-      <StatusBar style={isDark ? "light" : "dark"} />
-    </SafeAreaView>
+      <StatusBar style="dark" />
+    </View>
   );
 }
 
-function getStyles(isDark: boolean, isCompact: boolean) {
-  const colors = isDark ? darkPalette : palette;
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: ui.page, overflow: "hidden" },
+  glow: { position: "absolute", borderRadius: 999 },
+  glowAmber: { width: 256, height: 256, top: -64, right: -64, backgroundColor: "rgba(254,243,199,0.5)" },
+  glowRed: { width: 224, height: 224, top: 256, left: -64, backgroundColor: "rgba(254,226,226,0.35)" },
+  scroll: { flexGrow: 1, justifyContent: "space-between" },
 
-  return StyleSheet.create({
-    safe: {
-      flex: 1,
-      backgroundColor: isDark ? "#0a1020" : "#fff8f4",
-    },
-    glowTop: {
-      position: "absolute",
-      top: -80,
-      right: -40,
-      width: 220,
-      height: 220,
-      borderRadius: 110,
-      backgroundColor: isDark ? "rgba(255, 90, 106, 0.22)" : "rgba(226, 55, 68, 0.18)",
-    },
-    glowBottom: {
-      position: "absolute",
-      bottom: -60,
-      left: -50,
-      width: 200,
-      height: 200,
-      borderRadius: 100,
-      backgroundColor: isDark ? "rgba(255, 212, 42, 0.14)" : "rgba(255, 212, 42, 0.28)",
-    },
-    scrollContent: {
-      flexGrow: 1,
-      justifyContent: "center",
-      paddingHorizontal: isCompact ? 18 : 24,
-      paddingVertical: isCompact ? 20 : 28,
-      gap: isCompact ? 14 : 18,
-    },
-    hero: {
-      gap: 8,
-    },
-    eyebrow: {
-      fontSize: 12,
-      fontWeight: "800",
-      letterSpacing: 1.4,
-      textTransform: "uppercase",
-      color: colors.brand,
-    },
-    headline: {
-      fontSize: isCompact ? 38 : 46,
-      fontWeight: "900",
-      lineHeight: isCompact ? 42 : 50,
-      color: colors.ink,
-      letterSpacing: -0.5,
-    },
-    tagline: {
-      fontSize: isCompact ? 14 : 16,
-      lineHeight: isCompact ? 22 : 26,
-      color: colors.inkSoft,
-      maxWidth: 340,
-    },
-    inspirationCard: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: isDark ? "#3a2f14" : "#ffe6a8",
-      backgroundColor: isDark ? "rgba(255, 212, 42, 0.08)" : "rgba(255, 212, 42, 0.22)",
-      paddingHorizontal: 14,
-      paddingVertical: 12,
-    },
-    inspirationText: {
-      flex: 1,
-      fontSize: 13,
-      fontWeight: "600",
-      lineHeight: 20,
-      color: isDark ? "#f5df9b" : "#6b4f00",
-    },
-    logoButton: {
-      alignItems: "center",
-      gap: 10,
-      paddingVertical: 8,
-    },
-    logoButtonPressed: {
-      opacity: 0.92,
-      transform: [{ scale: 0.98 }],
-    },
-    logoButtonDisabled: {
-      opacity: 0.65,
-    },
-    logoHalo: {
-      position: "absolute",
-      top: isCompact ? 6 : 10,
-      width: isCompact ? 200 : 232,
-      height: isCompact ? 112 : 128,
-      borderRadius: 24,
-      backgroundColor: isDark ? "rgba(255, 90, 106, 0.2)" : "rgba(226, 55, 68, 0.12)",
-    },
-    logoFrame: {
-      width: isCompact ? 188 : 216,
-      height: isCompact ? 104 : 120,
-      borderRadius: 22,
-      borderWidth: 2,
-      borderColor: isDark ? "#4a5f88" : "#ffd6db",
-      backgroundColor: colors.surface,
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden",
-      boxShadow: isDark ? undefined : "0px 10px 28px rgba(226, 55, 68, 0.18)",
-      elevation: 6,
-    },
-    logoImage: {
-      width: isCompact ? 168 : 192,
-      height: isCompact ? 88 : 100,
-    },
-    loadingOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(0,0,0,0.35)",
-    },
-    googleRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      marginTop: 4,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: isDark ? colors.border : "#e8ecf3",
-      backgroundColor: colors.surface,
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-    },
-    googleLabel: {
-      fontSize: 15,
-      fontWeight: "800",
-      color: colors.ink,
-    },
-    googleHint: {
-      fontSize: 12,
-      color: colors.inkSoft,
-      fontWeight: "600",
-    },
-    missionRow: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      justifyContent: "center",
-      gap: 8,
-    },
-    missionPill: {
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: isDark ? "#2f456f" : "#f0c9ce",
-      backgroundColor: isDark ? "#15233d" : "#fff1f2",
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-    },
-    missionText: {
-      fontSize: 11,
-      fontWeight: "700",
-      color: isDark ? "#ffb4bc" : colors.brand,
-      letterSpacing: 0.3,
-    },
-    errorCard: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: 10,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: isDark ? "#5a2430" : "#f5c2c9",
-      backgroundColor: isDark ? "rgba(255, 90, 106, 0.12)" : "#fff1f2",
-      paddingHorizontal: 14,
-      paddingVertical: 12,
-    },
-    errorText: {
-      flex: 1,
-      fontSize: 13,
-      lineHeight: 20,
-      fontWeight: "600",
-      color: isDark ? "#ffb4bc" : colors.brandDark,
-    },
-    footerNote: {
-      textAlign: "center",
-      fontSize: 12,
-      color: colors.inkSoft,
-      lineHeight: 18,
-    },
-  });
-}
+  header: { alignItems: "center", paddingHorizontal: 24, paddingBottom: 24 },
+  logoCard: {
+    width: "100%",
+    maxWidth: 290,
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: ui.border,
+    backgroundColor: "#ffffff",
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  // Logo is 1200x636; keep that ratio.
+  logo: { width: 180, height: 95 },
+  logoCompact: { width: 150, height: 80 },
+  kicker: {
+    fontFamily: captureFonts.headExtra,
+    fontSize: 11,
+    letterSpacing: 2.4,
+    color: ui.kicker,
+    backgroundColor: ui.kickerBg,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  headline: {
+    marginTop: 12,
+    fontFamily: captureFonts.headExtra,
+    fontSize: 34,
+    lineHeight: 40,
+    letterSpacing: -0.6,
+    color: ui.ink,
+    textAlign: "center",
+  },
+  headlineCompact: { fontSize: 30, lineHeight: 36 },
+  subhead: {
+    marginTop: 12,
+    maxWidth: 310,
+    fontFamily: captureFonts.headSemi,
+    fontSize: 14,
+    lineHeight: 22,
+    color: ui.body,
+    textAlign: "center",
+  },
+
+  sheet: {
+    backgroundColor: ui.sheet,
+    borderTopLeftRadius: 38,
+    borderTopRightRadius: 38,
+    borderTopWidth: 1,
+    borderColor: ui.border,
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: -8 },
+    elevation: 4,
+  },
+  welcome: { fontFamily: captureFonts.headExtra, fontSize: 29, lineHeight: 36, letterSpacing: -0.4, color: ui.ink },
+  sheetSub: { marginTop: 4, fontFamily: captureFonts.headSemi, fontSize: 14, lineHeight: 20, color: ui.body },
+
+  google: {
+    marginTop: 24,
+    height: 54,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    shadowColor: "#7f1d1d",
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  googleBadge: { width: 28, height: 28, borderRadius: 14, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  googleLabel: { fontFamily: captureFonts.headBold, fontSize: 15.5, letterSpacing: 0.3, color: "#ffffff" },
+  pressed: { transform: [{ scale: 0.985 }] },
+
+  error: {
+    marginTop: 16,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: ui.errorBorder,
+    backgroundColor: ui.errorBg,
+  },
+  errorText: { flex: 1, fontFamily: captureFonts.headSemi, fontSize: 13, lineHeight: 19, color: ui.errorText },
+
+  callout: {
+    marginTop: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: ui.calloutBorder,
+    backgroundColor: ui.calloutBg,
+  },
+  calloutText: { flexShrink: 1, fontFamily: captureFonts.headBold, fontSize: 12.5, letterSpacing: -0.2, color: ui.calloutText },
+
+  features: { marginTop: 18, flexDirection: "row", gap: 10 },
+  feature: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: ui.border,
+    backgroundColor: "#ffffff",
+  },
+  featureIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  featureTitle: { fontFamily: captureFonts.headBold, fontSize: 13, lineHeight: 16, color: "#111827" },
+  featureHint: { marginTop: 2, fontFamily: captureFonts.headSemi, fontSize: 10, color: ui.muted },
+});

@@ -25,6 +25,18 @@ enum EventStatus {
   complete
 }
 
+enum ReviewStatus {
+  pending
+  approved
+  changes_requested
+}
+
+enum ContentKind {
+  event
+  post
+  story
+}
+
 model User {
   id            String   @id @default(cuid())
   email         String   @unique
@@ -147,6 +159,14 @@ model Event {
   location           String?
   eventStatus        EventStatus @default(upcoming)
   approvedForGallery Boolean     @default(false)
+  reviewStatus       ReviewStatus @default(pending)
+  reviewReason       String?
+  reviewNote         String?     @db.Text
+  reviewedById       String?
+  reviewedAt         DateTime?
+  kind               ContentKind @default(event)
+  parentEventId      String?
+  body               String?     @db.Text
   mediaType          MediaType
   mediaUrl           String
   mediaDriveFileId   String
@@ -162,6 +182,8 @@ model Event {
   costCenter         CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
   city               City?       @relation(fields: [cityId], references: [id], onDelete: SetNull)
   uploadedBy         User        @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  parentEvent        Event?      @relation("EventContributions", fields: [parentEventId], references: [id], onDelete: SetNull)
+  posts              Event[]     @relation("EventContributions")
   notifications      DonorNotification[]
 
   @@index([typeId])
@@ -171,4 +193,7 @@ model Event {
   @@index([cityId])
   @@index([eventStatus])
   @@index([approvedForGallery])
+  @@index([reviewStatus])
+  @@index([kind])
+  @@index([parentEventId])
 }

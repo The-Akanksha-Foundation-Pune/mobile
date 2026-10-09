@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform } from "react-native";
+import { ActivityIndicator, Alert, Image, Platform, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { makeRedirectUri } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
@@ -15,6 +15,14 @@ import { useAppRoute } from "./hooks/useAppRoute";
 import { HomeScreen } from "./screens/HomeScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
+import { Appearance } from "react-native";
+import { useFonts } from "expo-font";
+import { Inter_400Regular, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
+import {
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+  PlusJakartaSans_800ExtraBold,
+} from "@expo-google-fonts/plus-jakarta-sans";
 import { citiesWithCostCenters } from "./config/cities";
 import {
   fetchCities,
@@ -26,7 +34,7 @@ import {
   uploadEvent,
 } from "./services/api";
 import { getDummyCostCenters, USE_DUMMY_HUB_DATA } from "./data/dummyHubData";
-import type { City, CostCenter, EventItem, EventType, MediaMode, ProfileUpdate, SelectedMedia, User } from "./types/app";
+import type { City, ContentKind, CostCenter, EventItem, EventType, MediaMode, ProfileUpdate, SelectedMedia, User } from "./types/app";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -72,6 +80,20 @@ function clearWebOAuthHash(): void {
 }
 
 export default function App() {
+  useEffect(() => {
+    // The app is light-only; pin the scheme so older screens never pick up the phone's dark mode.
+    if (typeof Appearance.setColorScheme === "function") {
+      Appearance.setColorScheme("light");
+    }
+  }, []);
+  const [fontsLoaded, fontError] = useFonts({
+    Inter_400Regular,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
+  });
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [isAuthBootstrapped, setIsAuthBootstrapped] = useState(false);
@@ -86,6 +108,7 @@ export default function App() {
   const [caption, setCaption] = useState("");
   const [eventDate, setEventDate] = useState(new Date().toISOString().slice(0, 10));
   const [eventLocation, setEventLocation] = useState("");
+  const [body, setBody] = useState("");
   const [mediaType, setMediaType] = useState<MediaMode>("photo");
   const [media, setMedia] = useState<SelectedMedia>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -357,9 +380,33 @@ export default function App() {
     }
   }
 
-  async function handleSubmitEvent(costCenterId: string | null, cityId?: string | null): Promise<boolean> {
-    if (!selectedTypeId || !eventTitle.trim() || !caption.trim() || !eventDate || !media) {
-      Alert.alert("Missing fields", "Title, type, date, caption and media are required.");
+  async function handleSubmitEvent(
+    costCenterId: string | null,
+    cityId?: string | null,
+    options: { kind?: ContentKind; parentEventId?: string; body?: string } = {}
+  ): Promise<boolean> {
+    const kind = options.kind ?? "event";
+    const hasParent = Boolean(options.parentEventId);
+    const excerpt = caption.trim() || (kind === "story" ? (options.body || "").trim().slice(0, 200) : "");
+
+    if (!media) {
+      Alert.alert("Missing media", "Add a photo or video first.");
+      return false;
+    }
+    if (kind === "event" && (!selectedTypeId || !eventTitle.trim() || !eventDate || !excerpt)) {
+      Alert.alert("Missing fields", "Title, type, date, description and media are required.");
+      return false;
+    }
+    if (kind === "post" && !excerpt) {
+      Alert.alert("Missing caption", "Write a short caption for the post.");
+      return false;
+    }
+    if (kind === "story" && (!eventTitle.trim() || !(options.body || "").trim())) {
+      Alert.alert("Missing fields", "A story needs a title and the story text.");
+      return false;
+    }
+    if (kind !== "event" && !hasParent && (!selectedTypeId || !eventDate)) {
+      Alert.alert("Missing fields", "Pick an event type and date, or attach this to an existing event.");
       return false;
     }
 
@@ -368,23 +415,31 @@ export default function App() {
       await uploadEvent({
         token,
         title: eventTitle,
-        caption,
-        typeId: selectedTypeId,
-        eventDate,
+        caption: excerpt,
+        typeId: hasParent ? undefined : selectedTypeId,
+        eventDate: hasParent ? undefined : eventDate,
         mediaType,
         media,
         costCenterId: costCenterId || undefined,
         cityId: cityId || undefined,
         location: eventLocation,
+        kind,
+        parentEventId: options.parentEventId,
+        body: kind === "story" ? options.body : undefined,
       });
       setEventTitle("");
       setCaption("");
+      setBody("");
       setEventLocation("");
       setMedia(null);
       await loadSessionData();
       Alert.alert(
         "Success",
-        "Event saved. An admin can approve it and notify donors."
+        kind === "event"
+          ? "Event saved. An admin can approve it and notify donors."
+          : kind === "story"
+            ? "Story published for review."
+            : "Post added for review."
       );
       return true;
     } catch (error) {
@@ -431,8 +486,14 @@ export default function App() {
     return <NotFoundScreen onGoHome={() => setRoute("home")} onGoLogin={handleLogout} />;
   }
 
-  if (!isAuthBootstrapped) {
-    return null;
+  // Draw a light loading screen rather than nothing: an empty tree shows as a black window on Android.
+  if (!isAuthBootstrapped || !(fontsLoaded || fontError)) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 24, backgroundColor: "#f9f9ff" }}>
+        <Image source={require("../assets/akanksha-logo.png")} style={{ width: 200, height: 106 }} resizeMode="contain" />
+        <ActivityIndicator size="large" color="#b50c08" />
+      </View>
+    );
   }
 
   if (!token || !user) {
@@ -473,6 +534,8 @@ export default function App() {
       onChangeEventLocation={setEventLocation}
       onCaptureMedia={handleCaptureFromCamera}
       onSaveEvent={handleSubmitEvent}
+      body={body}
+      onChangeBody={setBody}
       onUpdateProfile={handleUpdateProfile}
     />
   );

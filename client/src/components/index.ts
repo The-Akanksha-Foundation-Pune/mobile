@@ -8,3 +8,7 @@ export { SelectChip } from "./SelectChip";
 export { AppHeader } from "./AppHeader";
 export { BottomNav } from "./BottomNav";
 export type { BottomNavItem } from "./BottomNav";
+export { CaptureHeader } from "./CaptureHeader";
+export { CaptureTabBar } from "./CaptureTabBar";
+export type { CaptureTab } from "./CaptureTabBar";
+export { CaptureLayout } from "./CaptureLayout";
