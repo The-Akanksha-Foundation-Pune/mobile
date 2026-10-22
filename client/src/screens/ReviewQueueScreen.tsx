@@ -1,84 +1,43 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  Badge,
   BulkActionDock,
-  FilterSelect,
+  CaptureButton,
+  EmptyState,
+  ListLoader,
   PillTabs,
   QueueCard,
-  RejectReasonSheet,
   SearchField,
   Toast,
-  type BadgeTone,
-  type QueueItem,
-  type RejectSubmission,
-  type ReviewReason,
-  type ToastTone,
-} from "../components/capture";
+  type ToastTone, popupAlert } from "../components/capture";
 import { bulkReviewEvents, fetchAdminEvents, reviewEvent } from "../services/api";
-import type { City, EventItem, EventType, ReviewStatus } from "../types/app";
+import type { City, EventItem, ReviewStatus } from "../types/app";
 import { useCaptureTheme, type CaptureColors } from "../theme/useCaptureTheme";
-import { authorName, reviewStatusOf as statusOf } from "../utils/eventPresenters";
-import { formatRelativeTime } from "../utils/relativeTime";
-
-const SEARCH_HINTS = ["Search pending posts", "Search volunteers", "Search cost centers"];
-
-/** Reasons offered when an admin requests changes. Edit this list to change the sheet. */
-export const REVIEW_REASONS: ReviewReason[] = [
-  { id: "blurry", label: "Blurry or low-light media", description: "Faces or project details are unreadable" },
-  { id: "consent", label: "Missing student consent form", description: "An identifiable student has no signed waiver" },
-  { id: "cost_center", label: "Incorrect cost center tag", description: "Assigned unit doesn't match the school region" },
-  { id: "caption", label: "Incomplete or vague caption", description: "Needs learning outcomes or a child quote" },
-];
+import { contentKindOf, formatEventDate, reviewStatusOf } from "../utils/eventPresenters";
+import { toQueueItem } from "../utils/queueItems";
 
 const TABS: { id: ReviewStatus; label: string }[] = [
   { id: "pending", label: "Pending" },
-  { id: "changes_requested", label: "Changes Needed" },
   { id: "approved", label: "Approved" },
 ];
 
 type Props = {
   token: string;
-  cities: City[];
-  eventTypes: EventType[];
+  cities?: City[];
+  /** The event being reviewed; null shows the event list. Owned by the parent so the header can react. */
+  eventId: string | null;
+  onSelectEvent: (eventId: string | null) => void;
   /** Called after any decision so parents can refresh their own lists. */
   onChanged?: () => void;
 };
 
-function roleTone(role?: string): BadgeTone {
-  if (role === "admin") return "tertiary";
-  if (role === "employee") return "secondary";
-  return "primary";
-}
+type EventSummary = { event: EventItem; pending: number; approved: number };
 
-function toQueueItem(event: EventItem): QueueItem {
-  const tags: QueueItem["tags"] = [];
-  if (event.title) tags.push({ icon: "calendar-blank-outline", label: event.title });
-  if (event.eventTypeName) tags.push({ icon: "shape-outline", label: event.eventTypeName });
-  if (event.costCenterCode) tags.push({ icon: "tag-outline", label: event.costCenterCode });
-  const role = event.uploadedByRole;
-  return {
-    id: event.id,
-    authorName: authorName(event),
-    authorRole: role ? role.charAt(0).toUpperCase() + role.slice(1) : undefined,
-    roleTone: roleTone(role),
-    metaLine: `${event.costCenterName || event.cityName || "No location"} • ${formatRelativeTime(event.createdAt)}`,
-    caption: event.caption,
-    media:
-      event.mediaType === "video"
-        ? { kind: "video", uri: event.mediaUrl, badge: { icon: "video", label: "Video clip", iconColor: "#FBDA1D" } }
-        : { kind: "photo", uri: event.mediaUrl },
-    tags,
-    note:
-      statusOf(event) === "changes_requested" && event.reviewReason
-        ? `Changes requested: ${event.reviewReason}${event.reviewNote ? ` — ${event.reviewNote}` : ""}`
-        : undefined,
-  };
-}
-
-/** Admin moderation queue: filter, review one by one, or approve in bulk. */
-export function ReviewQueueScreen({ token, cities, eventTypes, onChanged }: Props) {
+/** Review queue: pick an event first, then approve its posts and stories. */
+export function ReviewQueueScreen({ token, eventId, onSelectEvent, onChanged }: Props) {
   const { c, type } = useCaptureTheme();
   const styles = useMemo(() => getStyles(c), [c]);
   const [items, setItems] = useState<EventItem[]>([]);
@@ -86,10 +45,7 @@ export function ReviewQueueScreen({ token, cities, eventTypes, onChanged }: Prop
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<ReviewStatus>("pending");
   const [query, setQuery] = useState("");
-  const [cityId, setCityId] = useState("");
-  const [typeId, setTypeId] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [rejectTarget, setRejectTarget] = useState<EventItem | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -98,7 +54,7 @@ export function ReviewQueueScreen({ token, cities, eventTypes, onChanged }: Prop
     try {
       setItems(await fetchAdminEvents(token));
     } catch (error) {
-      Alert.alert("Could not load the queue", (error as Error).message);
+      popupAlert("Could not load the queue", (error as Error).message);
     } finally {
       setLoading(false);
     }
@@ -118,38 +74,38 @@ export function ReviewQueueScreen({ token, cities, eventTypes, onChanged }: Prop
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }
 
-  const counts = useMemo(() => {
-    const base: Record<ReviewStatus, number> = { pending: 0, approved: 0, changes_requested: 0 };
-    for (const event of items) base[statusOf(event)] += 1;
-    return base;
+  /** Events that have posts or stories, with their review counts. */
+  const summaries = useMemo<EventSummary[]>(() => {
+    const byId = new Map(items.filter((item) => contentKindOf(item) === "event").map((item) => [item.id, item]));
+    const counts = new Map<string, { pending: number; approved: number }>();
+    for (const item of items) {
+      if (contentKindOf(item) === "event" || !item.parentEventId) continue;
+      const entry = counts.get(item.parentEventId) ?? { pending: 0, approved: 0 };
+      entry[reviewStatusOf(item)] += 1;
+      counts.set(item.parentEventId, entry);
+    }
+    return Array.from(counts.entries())
+      .map(([id, count]) => ({ event: byId.get(id), ...count }))
+      .filter((row): row is EventSummary => Boolean(row.event))
+      .sort((a, b) => b.pending - a.pending || b.event.eventDate.localeCompare(a.event.eventDate));
   }, [items]);
 
-  const visible = useMemo(() => {
+  const visibleSummaries = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return items.filter((event) => {
-      if (statusOf(event) !== tab) return false;
-      if (cityId && event.cityId !== cityId) return false;
-      if (typeId && event.typeId !== typeId) return false;
-      if (!q) return true;
-      return [event.title, event.caption, event.uploadedByName, event.uploadedByEmail, event.costCenterCode, event.costCenterName]
-        .some((value) => (value || "").toLowerCase().includes(q));
-    });
-  }, [items, tab, cityId, typeId, query]);
+    if (!q) return summaries;
+    return summaries.filter(({ event }) => [event.title, event.cityName, event.costCenterName, event.location].some((value) => (value || "").toLowerCase().includes(q)));
+  }, [summaries, query]);
 
-  const selectedVisible = visible.filter((event) => selected.has(event.id));
-  const allSelected = visible.length > 0 && selectedVisible.length === visible.length;
-
-  function toggleSelect(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  const current = summaries.find((row) => row.event.id === eventId) ?? null;
+  const queue = useMemo(
+    () => items.filter((item) => item.parentEventId === eventId && contentKindOf(item) !== "event" && reviewStatusOf(item) === tab),
+    [items, eventId, tab]
+  );
+  const selectedVisible = queue.filter((item) => selected.has(item.id));
+  const allSelected = queue.length > 0 && selectedVisible.length === queue.length;
 
   function applyUpdates(updated: EventItem[]) {
-    setItems((prev) => prev.map((event) => updated.find((u) => u.id === event.id) ?? event));
+    setItems((prev) => prev.map((item) => updated.find((u) => u.id === item.id) ?? item));
     setSelected((prev) => {
       const next = new Set(prev);
       updated.forEach((u) => next.delete(u.id));
@@ -158,20 +114,20 @@ export function ReviewQueueScreen({ token, cities, eventTypes, onChanged }: Prop
     onChanged?.();
   }
 
-  async function approve(event: EventItem) {
+  async function decide(item: EventItem, status: ReviewStatus) {
     try {
       setBusy(true);
-      applyUpdates([await reviewEvent(token, event.id, { status: "approved" })]);
-      showToast(`Post by ${authorName(event)} approved!`);
+      applyUpdates([await reviewEvent(token, item.id, { status })]);
+      showToast(status === "approved" ? "Approved" : "Moved back to pending", status === "approved" ? "success" : "warning");
     } catch (error) {
-      Alert.alert("Approve failed", (error as Error).message);
+      popupAlert("Update failed", (error as Error).message);
     } finally {
       setBusy(false);
     }
   }
 
   async function approveSelected() {
-    const ids = selectedVisible.map((event) => event.id);
+    const ids = selectedVisible.map((item) => item.id);
     if (!ids.length) return;
     try {
       setBusy(true);
@@ -179,90 +135,114 @@ export function ReviewQueueScreen({ token, cities, eventTypes, onChanged }: Prop
       await load();
       setSelected(new Set());
       onChanged?.();
-      showToast(`${ids.length} post${ids.length === 1 ? "" : "s"} approved!`);
+      showToast(`${ids.length} item${ids.length === 1 ? "" : "s"} approved`);
     } catch (error) {
-      Alert.alert("Bulk approve failed", (error as Error).message);
+      popupAlert("Bulk approve failed", (error as Error).message);
     } finally {
       setBusy(false);
     }
   }
 
-  async function submitReject({ reasonLabel, note }: RejectSubmission) {
-    if (!rejectTarget) return;
-    try {
-      setBusy(true);
-      applyUpdates([
-        await reviewEvent(token, rejectTarget.id, { status: "changes_requested", reason: reasonLabel, note: note || undefined }),
-      ]);
-      setRejectTarget(null);
-      showToast(`Feedback sent: ${reasonLabel}`, "warning");
-    } catch (error) {
-      Alert.alert("Could not send feedback", (error as Error).message);
-    } finally {
-      setBusy(false);
-    }
+  if (!current) {
+    return (
+      <SafeAreaView style={styles.safe} edges={[]}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <Text style={[type.bodySm, { color: c.onSurfaceVariant }]}>Choose an event to review its posts and stories.</Text>
+          <SearchField value={query} onChangeText={setQuery} placeholder="Search events..." size="md" elevated />
+          {loading && items.length === 0 ? (
+            <ListLoader message="Loading events..." />
+          ) : visibleSummaries.length === 0 ? (
+            <EmptyState icon="clipboard-check-outline" title="Nothing to review" message="Posts and stories will show up here under their event." />
+          ) : (
+            <View style={styles.list}>
+              {visibleSummaries.map(({ event, pending, approved }) => (
+                <Pressable
+                  key={event.id}
+                  onPress={() => {
+                    onSelectEvent(event.id);
+                    setTab(pending > 0 ? "pending" : "approved");
+                    setSelected(new Set());
+                  }}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.eventRow, { backgroundColor: pressed ? c.surfaceContainerLow : c.surfaceCard, borderColor: c.cardBorder }]}
+                >
+                  <View style={[styles.eventIcon, { backgroundColor: pending > 0 ? "rgba(247,144,9,0.14)" : "rgba(3,152,85,0.12)" }]}>
+                    <MaterialCommunityIcons name={pending > 0 ? "clipboard-text-clock-outline" : "clipboard-check-outline"} size={20} color={pending > 0 ? c.pendingText : c.statusSuccess} />
+                  </View>
+                  <View style={styles.grow}>
+                    <Text style={[type.labelLg, { color: c.onSurface }]} numberOfLines={2}>
+                      {event.title || "Untitled event"}
+                    </Text>
+                    <Text style={[type.bodySm, { color: c.onSurfaceVariant }]} numberOfLines={1}>
+                      {formatEventDate(event.eventDate)}
+                      {event.cityName ? ` • ${event.cityName}` : ""} • {approved} approved
+                    </Text>
+                  </View>
+                  {pending > 0 ? <Badge label={`${pending} pending`} tone="warning" pill /> : <Badge label="Done" tone="success" pill />}
+                  <MaterialCommunityIcons name="chevron-right" size={20} color={c.onSurfaceVariant} />
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    );
   }
 
   return (
     <SafeAreaView style={styles.safe} edges={[]}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <SearchField value={query} onChangeText={setQuery} placeholders={SEARCH_HINTS} />
         <PillTabs
-          tabs={TABS.map((item) => ({ ...item, count: counts[item.id] }))}
+          tabs={TABS.map((item) => ({ ...item, count: item.id === "pending" ? current.pending : current.approved }))}
           activeId={tab}
           onSelect={(id) => {
             setTab(id as ReviewStatus);
             setSelected(new Set());
           }}
         />
-        <View style={styles.filterRow}>
-          <View style={styles.filters}>
-            <FilterSelect label="City" allLabel="All Cities" options={cities.map((city) => ({ id: city.id, label: city.name }))} valueId={cityId} onChange={setCityId} />
-            <FilterSelect label="Event type" allLabel="All Events" options={eventTypes.map((item) => ({ id: item.id, label: item.name }))} valueId={typeId} onChange={setTypeId} />
-          </View>
-          {tab === "pending" && visible.length > 0 ? (
-            <Pressable
-              onPress={() => setSelected(allSelected ? new Set() : new Set(visible.map((event) => event.id)))}
-              style={styles.selectAll}
-              accessibilityRole="button"
-            >
-              <MaterialCommunityIcons name="checkbox-multiple-marked-outline" size={18} color={c.primary} />
-              <Text style={[type.labelMd, { color: c.primary }]}>{allSelected ? "Deselect All" : "Select All"}</Text>
-            </Pressable>
-          ) : null}
-        </View>
-
-        {loading && items.length === 0 ? (
-          <Text style={styles.empty}>Loading queue...</Text>
-        ) : visible.length === 0 ? (
-          <Text style={styles.empty}>Nothing here right now.</Text>
+        {tab === "pending" && queue.length > 0 ? (
+          <Pressable onPress={() => setSelected(allSelected ? new Set() : new Set(queue.map((item) => item.id)))} style={styles.selectAll} accessibilityRole="button">
+            <MaterialCommunityIcons name="checkbox-multiple-marked-outline" size={18} color={c.primary} />
+            <Text style={[type.labelMd, { color: c.primary }]}>{allSelected ? "Deselect All" : "Select All"}</Text>
+          </Pressable>
         ) : null}
 
-        <View style={styles.list}>
-          {visible.map((event) => (
-            <QueueCard
-              key={event.id}
-              item={toQueueItem(event)}
-              selectable={tab === "pending"}
-              selected={selected.has(event.id)}
-              onToggleSelect={() => toggleSelect(event.id)}
-              onApprove={tab !== "approved" ? () => void approve(event) : undefined}
-              onReject={tab !== "changes_requested" ? () => setRejectTarget(event) : undefined}
-              busy={busy}
-            />
-          ))}
-        </View>
+        {queue.length === 0 ? (
+          <EmptyState
+            icon={tab === "pending" ? "check-decagram-outline" : "clipboard-text-outline"}
+            title={tab === "pending" ? "All reviewed" : "Nothing approved yet"}
+            message={tab === "pending" ? "Every post and story for this event has been reviewed." : "Approved items will appear here."}
+          />
+        ) : (
+          <View style={styles.list}>
+            {queue.map((item) => (
+              <QueueCard
+                key={item.id}
+                item={toQueueItem(item)}
+                selectable={tab === "pending"}
+                selected={selected.has(item.id)}
+                onToggleSelect={() =>
+                  setSelected((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(item.id)) next.delete(item.id);
+                    else next.add(item.id);
+                    return next;
+                  })
+                }
+                onApprove={tab === "pending" ? () => void decide(item, "approved") : undefined}
+                actions={
+                  tab === "approved" ? (
+                    <CaptureButton label="Move back to pending" variant="secondary" size="sm" icon="undo-variant" onPress={() => void decide(item, "pending")} disabled={busy} style={styles.grow} />
+                  ) : undefined
+                }
+                busy={busy}
+              />
+            ))}
+          </View>
+        )}
       </ScrollView>
 
-      <BulkActionDock visible={tab === "pending"} count={selectedVisible.length} noun="post" actionLabel="Approve Selected" onAction={() => void approveSelected()} busy={busy} />
-      <RejectReasonSheet
-        visible={Boolean(rejectTarget)}
-        subtitle={rejectTarget ? `${rejectTarget.title || "Untitled post"} • ${authorName(rejectTarget)}` : undefined}
-        reasons={REVIEW_REASONS}
-        submitting={busy}
-        onCancel={() => setRejectTarget(null)}
-        onSubmit={(submission) => void submitReject(submission)}
-      />
+      <BulkActionDock visible={tab === "pending"} count={selectedVisible.length} noun="item" actionLabel="Approve Selected" onAction={() => void approveSelected()} busy={busy} />
       <Toast visible={Boolean(toast)} message={toast?.message ?? ""} tone={toast?.tone ?? "success"} />
     </SafeAreaView>
   );
@@ -272,10 +252,11 @@ function getStyles(c: CaptureColors) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: c.surface },
     content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 112, gap: 12 },
-    filterRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-    filters: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
-    selectAll: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: 8 },
-    list: { gap: 16 },
+    grow: { flex: 1 },
+    list: { gap: 12 },
+    eventRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12, borderWidth: 1 },
+    eventIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+    selectAll: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-end", paddingVertical: 4, paddingHorizontal: 8 },
     empty: { textAlign: "center", color: c.onSurfaceVariant, marginTop: 32, fontFamily: "Inter_400Regular", fontSize: 14 },
   });
 }

@@ -1,6 +1,6 @@
 const express = require("express");
 const { z } = require("zod");
-const { requireAuth, requireRole } = require("../middleware/auth");
+const { requireAuth, requirePermission } = require("../middleware/auth");
 const prisma = require("../lib/prisma");
 
 const router = express.Router();
@@ -79,7 +79,7 @@ router.get("/", requireAuth, async (req, res) => {
   return res.json(entries.map(serializeEntry));
 });
 
-router.get("/all", requireAuth, requireRole("admin"), async (req, res) => {
+router.get("/all", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const { costCenterId, cityId } = req.query;
   const entries = await prisma.calendarEntry.findMany({
     where: {
@@ -92,7 +92,7 @@ router.get("/all", requireAuth, requireRole("admin"), async (req, res) => {
   return res.json(entries.map(serializeEntry));
 });
 
-router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const parsed = entrySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid calendar entry payload." });
@@ -129,7 +129,7 @@ router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
   return res.status(201).json(serializeEntry(entry));
 });
 
-router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.patch("/:id", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const parsed = entrySchema.partial().safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid calendar entry update." });
@@ -182,7 +182,7 @@ router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
   return res.json(serializeEntry(entry));
 });
 
-router.delete("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.delete("/:id", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const existing = await prisma.calendarEntry.findUnique({ where: { id: req.params.id } });
   if (!existing) {
     return res.status(404).json({ message: "Calendar entry not found." });

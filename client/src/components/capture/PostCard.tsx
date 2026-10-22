@@ -1,9 +1,10 @@
 import { ReactNode } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { AvatarInitials } from "./AvatarInitials";
 import { statusToneColor, type StatusTone } from "../../theme/capture";
 import { useCaptureTheme } from "../../theme/useCaptureTheme";
+import { RemoteImage } from "./RemoteImage";
 
 export type PostMedia = {
   kind: "photo" | "video";
@@ -78,7 +79,7 @@ export function PostCard({
 
       {media?.kind === "video" ? (
         <View style={[styles.media, { backgroundColor: DARK, borderRadius: layout.radius.md }]}>
-          {media.uri ? <Image source={{ uri: media.uri }} style={[StyleSheet.absoluteFill, styles.videoImage]} resizeMode="cover" /> : null}
+          <RemoteImage uri={media.uri} style={[StyleSheet.absoluteFill, styles.videoImage]} fallbackIcon={null} />
           <Pressable
             onPress={onPlay}
             disabled={!onPlay}
@@ -92,11 +93,7 @@ export function PostCard({
         </View>
       ) : media ? (
         <View style={[styles.media, { backgroundColor: c.surfaceContainer, borderRadius: layout.radius.default }]}>
-          {media.uri ? (
-            <Image source={{ uri: media.uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-          ) : (
-            <MaterialCommunityIcons name="image-outline" size={28} color={c.onSurfaceVariant} />
-          )}
+          <RemoteImage uri={media.uri} />
           {media.audio ? (
             <View style={styles.audioBar}>
               <MaterialCommunityIcons name="microphone" size={16} color={c.brandSun} />

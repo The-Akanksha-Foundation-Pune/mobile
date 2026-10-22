@@ -33,77 +33,89 @@ function titleOf(event: EventItem): string {
   return event.title || event.caption || `Untitled ${KIND_LABEL[contentKindOf(event)]}`;
 }
 
-/** Builds the feed from data the app already has: review outcomes, contributions and new events nearby. */
-function buildNotifications(events: EventItem[], user: User, isAdmin: boolean): Omit<AppNotification, "unread">[] {
+/** Start of the event's first day, which is when it goes live. */
+function liveSince(event: EventItem): string {
+  return new Date(`${event.eventDate}T00:00:00`).toISOString();
+}
+
+/**
+ * Who gets what:
+ * - Everyone: an event went live; someone posted a post or story on a live event.
+ * - Donor team ("DR") and special users: someone created an event.
+ * - Super admins: someone created an event; a donor-team member approved a post or story.
+ */
+function buildNotifications(events: EventItem[], user: User): Omit<AppNotification, "unread">[] {
   const since = Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000;
   const recent = (iso?: string | null) => Boolean(iso) && new Date(iso as string).getTime() >= since;
   const byId = new Map(events.map((event) => [event.id, event]));
+  const role = user.role;
+  const isAdmin = role === "super_admin";
+  const seesNewEvents = isAdmin || role === "donor" || role === "special";
   const items: Omit<AppNotification, "unread">[] = [];
 
   for (const event of events) {
     const kind = contentKindOf(event);
     const mine = event.uploadedBy === user.id;
 
-    // A reviewer made a decision on something I uploaded.
-    const status = reviewStatusOf(event);
-    if (mine && event.reviewedAt && recent(event.reviewedAt) && status !== "pending") {
-      const approved = status === "approved";
-      const detail = [event.reviewReason, event.reviewNote].filter(Boolean).join(" — ");
-      items.push({
-        id: `review:${event.id}:${event.reviewedAt}`,
-        icon: approved ? "check-decagram" : "alert-circle-outline",
-        tone: approved ? "success" : "danger",
-        title: approved ? `Your ${KIND_LABEL[kind]} was approved` : `Changes requested on your ${KIND_LABEL[kind]}`,
-        message: approved ? titleOf(event) : detail ? `${titleOf(event)}: ${detail}` : titleOf(event),
-        at: event.reviewedAt,
-        target: { type: "content", kind, id: event.id },
-      });
+    if (kind === "event") {
+      // Everyone: the event is live now.
+      if (event.eventStatus === "ongoing" && recent(liveSince(event))) {
+        items.push({
+          id: `live:${event.id}:${event.eventDate}`,
+          icon: "calendar-check",
+          tone: "success",
+          title: "Event is live",
+          message: `"${titleOf(event)}" is on now. Share your posts and stories.`,
+          at: liveSince(event),
+          target: { type: "content", kind: "event", id: event.id },
+        });
+      }
+      // Donor team, special users and admins: someone created an event.
+      if (seesNewEvents && !mine && recent(event.createdAt)) {
+        items.push({
+          id: `new-event:${event.id}`,
+          icon: "calendar-star",
+          tone: "warning",
+          title: "New event created",
+          message: `${authorName(event)} created "${titleOf(event)}"${event.cityName ? ` in ${event.cityName}` : ""}`,
+          at: event.createdAt,
+          target: { type: "content", kind: "event", id: event.id },
+        });
+      }
+      continue;
     }
 
-    if (mine || !recent(event.createdAt)) continue;
-
-    // Someone added a post or story under an event I created.
     const parent = event.parentEventId ? byId.get(event.parentEventId) : undefined;
-    if (kind !== "event" && parent && parent.uploadedBy === user.id) {
+
+    // Everyone: someone posted on a live event.
+    if (!mine && parent && parent.eventStatus === "ongoing" && recent(event.createdAt)) {
       items.push({
         id: `contribution:${event.id}`,
         icon: kind === "story" ? "book-open-page-variant" : "image-multiple",
         tone: "info",
-        title: `${authorName(event)} added a ${KIND_LABEL[kind]}`,
-        message: `On your event "${titleOf(parent)}"`,
+        title: `New ${KIND_LABEL[kind]} on a live event`,
+        message: `${authorName(event)} posted on "${titleOf(parent)}"`,
         at: event.createdAt,
         target: { type: "content", kind, id: event.id },
       });
-      continue;
     }
 
-    // A new event was created in my city.
-    if (kind === "event" && user.cityId && event.cityId === user.cityId) {
+    // Admins: a donor-team member approved a post or story.
+    if (
+      isAdmin &&
+      reviewStatusOf(event) === "approved" &&
+      event.reviewedByRole === "donor" &&
+      event.reviewedById !== user.id &&
+      recent(event.reviewedAt)
+    ) {
       items.push({
-        id: `new-event:${event.id}`,
-        icon: "calendar-star",
-        tone: "warning",
-        title: `New event in ${event.cityName || user.cityName || "your city"}`,
-        message: `${authorName(event)} created "${titleOf(event)}"`,
-        at: event.createdAt,
-        target: { type: "content", kind: "event", id: event.id },
-      });
-    }
-  }
-
-  // Admins get one summary item for the review queue rather than one per submission.
-  if (isAdmin) {
-    const pending = events.filter((event) => reviewStatusOf(event) === "pending");
-    if (pending.length > 0) {
-      const latest = pending.reduce((a, b) => ((a.createdAt || "") > (b.createdAt || "") ? a : b));
-      items.push({
-        id: `review-queue:${pending.length}:${latest.id}`,
-        icon: "clipboard-text-clock-outline",
-        tone: "neutral",
-        title: `${pending.length} submission${pending.length === 1 ? "" : "s"} waiting for review`,
-        message: `Latest: "${titleOf(latest)}" by ${authorName(latest)}`,
-        at: latest.createdAt,
-        target: { type: "reviewQueue" },
+        id: `approved:${event.id}:${event.reviewedAt}`,
+        icon: "check-decagram",
+        tone: "success",
+        title: `${KIND_LABEL[kind] === "story" ? "Story" : "Post"} approved by ${event.reviewedByName || "the donor team"}`,
+        message: `"${titleOf(event)}" by ${authorName(event)}`,
+        at: event.reviewedAt as string,
+        target: { type: "content", kind, id: event.id },
       });
     }
   }
@@ -113,7 +125,6 @@ function buildNotifications(events: EventItem[], user: User, isAdmin: boolean): 
 
 /** Notifications for the signed-in user, with read state remembered on this device. */
 export function useNotifications(events: EventItem[], user: User) {
-  const isAdmin = user.role === "admin";
   const [readState, setReadState] = useState<ReadState>({ allReadAt: 0, readIds: [] });
 
   useEffect(() => {
@@ -142,11 +153,14 @@ export function useNotifications(events: EventItem[], user: User) {
 
   const notifications = useMemo<AppNotification[]>(() => {
     const read = new Set(readState.readIds);
-    return buildNotifications(events, user, isAdmin).map((item) => ({
+    // Nothing that happened before the account existed counts as unread.
+    const joinedAt = user.createdAt ? new Date(user.createdAt).getTime() : 0;
+    const unreadSince = Math.max(readState.allReadAt, Number.isFinite(joinedAt) ? joinedAt : 0);
+    return buildNotifications(events, user).map((item) => ({
       ...item,
-      unread: new Date(item.at).getTime() > readState.allReadAt && !read.has(item.id),
+      unread: new Date(item.at).getTime() > unreadSince && !read.has(item.id),
     }));
-  }, [events, user, isAdmin, readState]);
+  }, [events, user, readState]);
 
   const unreadCount = notifications.filter((item) => item.unread).length;
 

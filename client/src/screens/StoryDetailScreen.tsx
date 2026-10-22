@@ -10,10 +10,11 @@ import { authorName, formatEventDate, placeOf, reviewStatusOf, reviewStatusPrese
 type Props = {
   story: EventItem | null;
   onOpenParent?: (eventId: string) => void;
+  showReviewStatus?: boolean;
 };
 
 /** Inner layout of a story: banner with the title, author line, and the full narrative. */
-export function StoryDetailScreen({ story, onOpenParent }: Props) {
+export function StoryDetailScreen({ story, onOpenParent, showReviewStatus = false }: Props) {
   const { c, type } = useCaptureTheme();
   const styles = useMemo(() => getStyles(c), [c]);
 
@@ -46,7 +47,7 @@ export function StoryDetailScreen({ story, onOpenParent }: Props) {
             <Text style={[type.labelMd, { color: c.onSurfaceVariant, flex: 1 }]} numberOfLines={1}>
               {role ? `${authorName(story)} • ${role}` : authorName(story)}
             </Text>
-            <Badge label={review.label} tone={review.tone} pill />
+            {showReviewStatus ? <Badge label={review.label} tone={review.tone} pill /> : null}
           </View>
           <View style={styles.metaRow}>
             <MaterialCommunityIcons name="calendar-today" size={13} color={c.onSurfaceVariant} />

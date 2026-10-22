@@ -1,6 +1,6 @@
 const express = require("express");
 const { z } = require("zod");
-const { requireAuth, requireRole } = require("../middleware/auth");
+const { requireAuth, requirePermission } = require("../middleware/auth");
 const prisma = require("../lib/prisma");
 
 const router = express.Router();
@@ -16,7 +16,7 @@ router.get("/", requireAuth, async (_req, res) => {
   return res.json(types);
 });
 
-router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const parsed = createTypeSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid event type payload." });

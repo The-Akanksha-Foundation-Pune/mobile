@@ -11,8 +11,11 @@ const cityRoutes = require("./routes/cities.routes");
 const costCenterRoutes = require("./routes/costCenters.routes");
 const donorRoutes = require("./routes/donors.routes");
 const calendarRoutes = require("./routes/calendar.routes");
+const googleCalendarRoutes = require("./routes/googleCalendar.routes");
 const notificationRoutes = require("./routes/notifications.routes");
 const adminRoutes = require("./routes/admin.routes");
+const accessRoutes = require("./routes/access.routes");
+const settingsRoutes = require("./routes/settings.routes");
 const prisma = require("./lib/prisma");
 const { getAllowedGoogleClientIds } = require("./services/googleAuth");
 
@@ -109,9 +112,12 @@ app.use("/api/events", eventRoutes);
 app.use("/api/cities", cityRoutes);
 app.use("/api/cost-centers", costCenterRoutes);
 app.use("/api/donors", donorRoutes);
+app.use("/api/calendar/google", googleCalendarRoutes);
 app.use("/api/calendar", calendarRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/access", accessRoutes);
+app.use("/api/settings", settingsRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

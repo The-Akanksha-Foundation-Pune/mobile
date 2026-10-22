@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { AvatarInitials } from "./AvatarInitials";
+import { Badge, type BadgeTone } from "./Badge";
 import { HeroMedia } from "./HeroMedia";
 import { TextButton } from "./TextButton";
 import { useCaptureTheme } from "../../theme/useCaptureTheme";
@@ -12,10 +13,12 @@ type Props = {
   authorRole?: string;
   actionLabel?: string;
   onPress?: () => void;
+  statusLabel?: string;
+  statusTone?: BadgeTone;
 };
 
 /** Directory card for a story: banner with the title, a quoted excerpt and the author. */
-export function StoryCard({ title, excerpt, imageUri, authorName, authorRole, actionLabel = "Read Story", onPress }: Props) {
+export function StoryCard({ title, excerpt, imageUri, authorName, authorRole, actionLabel = "Read Story", onPress, statusLabel, statusTone = "warning" }: Props) {
   const { c, type, layout, shadow } = useCaptureTheme();
   const quoted = excerpt ? (excerpt.startsWith("“") || excerpt.startsWith('"') ? excerpt : `“${excerpt}”`) : "";
 
@@ -27,6 +30,7 @@ export function StoryCard({ title, excerpt, imageUri, authorName, authorRole, ac
         </Text>
       </HeroMedia>
       <View style={styles.body}>
+        {statusLabel ? <Badge label={statusLabel} tone={statusTone} pill /> : null}
         {quoted ? (
           <Text style={[type.bodySm, styles.excerpt, { color: c.onSurfaceVariant }]} numberOfLines={2}>
             {quoted}

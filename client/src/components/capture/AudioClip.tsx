@@ -1,6 +1,7 @@
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCaptureTheme } from "../../theme/useCaptureTheme";
+import { RemoteImage } from "./RemoteImage";
 
 type Props = {
   title: string;
@@ -17,13 +18,12 @@ export function AudioClip({ title, durationLabel, thumbnailUri, playing = false,
   const { c, type, layout } = useCaptureTheme();
   return (
     <View style={[styles.wrap, { backgroundColor: c.surfaceContainerLow, borderRadius: layout.radius.md }]}>
-      {thumbnailUri ? (
-        <Image source={{ uri: thumbnailUri }} style={[styles.thumb, { borderRadius: layout.radius.default }]} />
-      ) : (
-        <View style={[styles.thumb, styles.thumbFallback, { backgroundColor: c.surfaceContainer, borderRadius: layout.radius.default }]}>
-          <MaterialCommunityIcons name="microphone" size={22} color={c.onSurfaceVariant} />
-        </View>
-      )}
+      <RemoteImage
+        uri={thumbnailUri}
+        style={[styles.thumb, { backgroundColor: c.surfaceContainer, borderRadius: layout.radius.default }]}
+        fallbackIcon="microphone"
+        fallbackIconSize={22}
+      />
       <View style={styles.body}>
         <View style={styles.titleRow}>
           <Text style={[type.labelMd, { color: c.onSurface, flex: 1 }]} numberOfLines={1}>
@@ -58,7 +58,6 @@ export function AudioClip({ title, durationLabel, thumbnailUri, playing = false,
 const styles = StyleSheet.create({
   wrap: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12 },
   thumb: { width: 56, height: 56 },
-  thumbFallback: { alignItems: "center", justifyContent: "center" },
   body: { flex: 1, minWidth: 0, gap: 4 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   duration: { fontFamily: "Inter_600SemiBold", fontSize: 11, lineHeight: 14, fontVariant: ["tabular-nums"] },

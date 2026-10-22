@@ -11,10 +11,12 @@ import { formatRelativeTime } from "../utils/relativeTime";
 type Props = {
   post: EventItem | null;
   onOpenParent?: (eventId: string) => void;
+  /** Review state is internal to reporting; only reviewers see it. */
+  showReviewStatus?: boolean;
 };
 
 /** Inner layout of a post: author, media, caption, the event it belongs to, and details. */
-export function PostDetailScreen({ post, onOpenParent }: Props) {
+export function PostDetailScreen({ post, onOpenParent, showReviewStatus = false }: Props) {
   const { c, type } = useCaptureTheme();
   const styles = useMemo(() => getStyles(c), [c]);
 
@@ -52,7 +54,7 @@ export function PostDetailScreen({ post, onOpenParent }: Props) {
               </Text>
             </View>
           </View>
-          <Badge label={review.label} tone={review.tone} pill />
+          {showReviewStatus ? <Badge label={review.label} tone={review.tone} pill /> : null}
         </View>
 
         <MediaPreview uri={post.mediaUrl} kind={post.mediaType} aspectRatio={4 / 3} />
@@ -60,15 +62,6 @@ export function PostDetailScreen({ post, onOpenParent }: Props) {
         {post.title ? <Text style={[type.headlineSm, { color: c.onSurface }]}>{post.title}</Text> : null}
         <Text style={[type.bodyLg, { color: c.onSurface }]}>{post.caption}</Text>
 
-        {post.reviewStatus === "changes_requested" && post.reviewReason ? (
-          <View style={[styles.notice, { backgroundColor: "rgba(217,45,32,0.08)" }]}>
-            <MaterialCommunityIcons name="alert-circle-outline" size={18} color={c.statusDanger} />
-            <Text style={[type.bodySm, { color: c.statusDanger, flex: 1 }]}>
-              Changes requested: {post.reviewReason}
-              {post.reviewNote ? ` — ${post.reviewNote}` : ""}
-            </Text>
-          </View>
-        ) : null}
 
         {post.parentEventId ? (
           <View style={[styles.linked, { backgroundColor: c.surfaceContainerLow }]}>
@@ -81,7 +74,6 @@ export function PostDetailScreen({ post, onOpenParent }: Props) {
         ) : null}
 
         <View style={styles.tags}>
-          {post.eventTypeName ? <TagChip icon="shape-outline" label={post.eventTypeName} /> : null}
           {post.costCenterCode ? <TagChip icon="tag-outline" label={post.costCenterCode} /> : null}
         </View>
 

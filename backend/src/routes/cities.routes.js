@@ -1,7 +1,7 @@
 const express = require("express");
 const { z } = require("zod");
 const { ALLOWED_CITY_NAMES } = require("../constants/allowedCities");
-const { requireAuth, requireRole } = require("../middleware/auth");
+const { requireAuth, requirePermission } = require("../middleware/auth");
 const prisma = require("../lib/prisma");
 
 const allowedCityFilter = { name: { in: ALLOWED_CITY_NAMES } };
@@ -23,7 +23,7 @@ router.get("/", requireAuth, async (_req, res) => {
   return res.json(cities);
 });
 
-router.get("/all", requireAuth, requireRole("admin"), async (_req, res) => {
+router.get("/all", requireAuth, requirePermission("manage_settings"), async (_req, res) => {
   const cities = await prisma.city.findMany({
     where: allowedCityFilter,
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
@@ -31,7 +31,7 @@ router.get("/all", requireAuth, requireRole("admin"), async (_req, res) => {
   return res.json(cities);
 });
 
-router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const parsed = citySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid city payload." });
@@ -53,7 +53,7 @@ router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
   return res.status(201).json(city);
 });
 
-router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.patch("/:id", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const parsed = citySchema.partial().safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid city update payload." });

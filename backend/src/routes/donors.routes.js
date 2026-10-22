@@ -1,6 +1,6 @@
 const express = require("express");
 const { z } = require("zod");
-const { requireAuth, requireRole } = require("../middleware/auth");
+const { requireAuth, requirePermission } = require("../middleware/auth");
 const prisma = require("../lib/prisma");
 
 const router = express.Router();
@@ -24,7 +24,7 @@ function serializeDonor(item) {
   };
 }
 
-router.get("/", requireAuth, requireRole("admin"), async (req, res) => {
+router.get("/", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const { costCenterId } = req.query;
   const donors = await prisma.donor.findMany({
     where: {
@@ -36,7 +36,7 @@ router.get("/", requireAuth, requireRole("admin"), async (req, res) => {
   return res.json(donors.map(serializeDonor));
 });
 
-router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const parsed = donorSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid donor payload." });

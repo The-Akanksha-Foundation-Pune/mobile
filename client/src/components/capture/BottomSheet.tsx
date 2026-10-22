@@ -87,7 +87,8 @@ export function BottomSheet({ visible, onClose, title, subtitle, children }: Pro
 const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)" },
-  sheet: { maxHeight: "85%", paddingTop: 12 },
+  // Full width on phones; a centered panel on tablets.
+  sheet: { maxHeight: "85%", paddingTop: 12, width: "100%", maxWidth: 640, alignSelf: "center" },
   handle: { alignSelf: "center", width: 48, height: 6, borderRadius: 999, marginBottom: 16 },
   titleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 8 },
   titles: { flex: 1, gap: 2 },

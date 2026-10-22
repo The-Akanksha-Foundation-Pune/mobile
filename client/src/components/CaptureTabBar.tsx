@@ -83,22 +83,26 @@ function getStyles() {
     },
     row: {
       height: captureLayout.navHeight,
-      paddingHorizontal: captureLayout.space.xs,
+      width: "100%",
+      maxWidth: captureLayout.contentMaxWidth,
+      alignSelf: "center",
+      paddingHorizontal: captureLayout.space.sm,
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-around",
     },
     item: {
       flex: 1,
       minWidth: 48,
-      minHeight: 48,
+      height: captureLayout.navHeight,
       alignItems: "center",
       justifyContent: "center",
-      gap: 4,
     },
-    dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "transparent" },
+    // Absolute so the icon stays on the bar's centre line regardless of the indicator.
+    dot: { position: "absolute", bottom: 6, width: 4, height: 4, borderRadius: 2, backgroundColor: "transparent" },
     dotActive: { backgroundColor: c.primary },
-    fabSlot: { flex: 1, alignItems: "center", justifyContent: "center" },
+    // Wider than an icon slot so the gap between the button and its neighbours
+    // matches the gap between the icons themselves (icon 26px vs button 56px).
+    fabSlot: { flex: 1.45, alignItems: "center", justifyContent: "center" },
     fab: {
       width: captureLayout.fabSize,
       height: captureLayout.fabSize,

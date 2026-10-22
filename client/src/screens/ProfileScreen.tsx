@@ -1,26 +1,37 @@
 import { ReactNode, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { CaptureHeader } from "../components";
-import { Badge, BottomSheet, CaptureButton, type SelectOption } from "../components/capture";
-import type { City, CostCenter, EventItem, ProfileUpdate, User } from "../types/app";
+import * as WebBrowser from "expo-web-browser";
+import { Badge, CaptureButton, TextButton } from "../components/capture";
+import type { CalendarConnection, EventItem, User } from "../types/app";
 import { useCaptureTheme, type CaptureColors } from "../theme/useCaptureTheme";
 import { contentKindOf } from "../utils/eventPresenters";
+import { can } from "../utils/permissions";
+import { PRIVACY_POLICY_URL } from "../config/constants";
 import appConfig from "../../app.json";
 
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
+/** Google Calendar link, shown to Special Access users only. */
+export type ProfileCalendarProps = {
+  /** null while the status is still being fetched. */
+  connection: CalendarConnection | null;
+  connecting: boolean;
+  onConnect: () => void;
+  onDisconnect: () => void;
+  onOpenEvents: () => void;
+};
 
 type ProfileScreenProps = {
   user: User;
   /** All events the app has loaded; the user's own uploads are picked out here. */
   events: EventItem[];
-  cities: City[];
-  costCenters: CostCenter[];
   isAdmin: boolean;
   onOpenAdmin: () => void;
-  onSave: (update: ProfileUpdate) => Promise<void>;
+  canManageAccess?: boolean;
+  onOpenAccess?: () => void;
   onLogout: () => void;
+  calendar?: ProfileCalendarProps;
 };
 
 function capitalize(value: string) {
@@ -34,98 +45,35 @@ function initialsOf(name: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-export function ProfileScreen({ user, events, cities, costCenters, isAdmin, onOpenAdmin, onSave, onLogout }: ProfileScreenProps) {
+export function ProfileScreen({ user, events, isAdmin, onOpenAdmin, canManageAccess = false, onOpenAccess, onLogout, calendar }: ProfileScreenProps) {
   const { c, type, layout, shadow } = useCaptureTheme();
   const styles = useMemo(() => getStyles(c), [c]);
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [draftName, setDraftName] = useState(user.name);
-  const [draftCityId, setDraftCityId] = useState<string | null>(user.cityId ?? null);
-  const [draftCostCenterId, setDraftCostCenterId] = useState<string | null>(user.costCenterId ?? null);
-
   const stats = useMemo(() => {
     const counts = { event: 0, post: 0, story: 0 };
     for (const event of events) if (event.uploadedBy === user.id) counts[contentKindOf(event)] += 1;
     return counts;
   }, [events, user.id]);
   const cityLabel = user.cityName ? [user.cityName, user.cityState].filter(Boolean).join(", ") : null;
-  const costCenterLabel = user.costCenterCode
+  const costCenterLabel = user.costCenterLocked && user.costCenterPath
+    ? user.costCenterPath
+    : user.costCenterCode
     ? [user.costCenterCode, user.costCenterName].filter(Boolean).join(" • ")
     : null;
-  const draftCostCenters = useMemo(
-    () => (draftCityId ? costCenters.filter((center) => center.cityId === draftCityId) : costCenters),
-    [costCenters, draftCityId]
-  );
   const version = (appConfig as { expo?: { version?: string } }).expo?.version ?? "1.0.0";
-
-  function startEditing() {
-    setDraftName(user.name);
-    setDraftCityId(user.cityId ?? null);
-    setDraftCostCenterId(user.costCenterId ?? null);
-    setEditing(true);
-  }
-
-  function pickCity(cityId: string | null) {
-    setDraftCityId(cityId);
-    const current = costCenters.find((center) => center.id === draftCostCenterId);
-    if (current && cityId && current.cityId !== cityId) setDraftCostCenterId(null);
-  }
-
-  function pickCostCenter(id: string | null) {
-    setDraftCostCenterId(id);
-    const center = costCenters.find((item) => item.id === id);
-    if (center?.cityId) setDraftCityId(center.cityId);
-  }
-
-  async function save() {
-    const name = draftName.trim();
-    if (!name) {
-      Alert.alert("Name required", "Please enter your name.");
-      return;
-    }
-    try {
-      setSaving(true);
-      await onSave({ name, cityId: draftCityId, costCenterId: draftCostCenterId });
-      setEditing(false);
-    } catch (error) {
-      Alert.alert("Could not save", (error as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function comingSoon(label: string) {
-    Alert.alert(label, "This setting is coming soon.");
-  }
+  const isSpecialAccess = can(user, "import_events");
 
   const card = [styles.card, shadow.level1, { borderRadius: layout.radius.lg }];
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      <CaptureHeader
-        title={editing ? "Edit profile" : "Profile"}
-        onBack={editing ? () => setEditing(false) : undefined}
-        right={
-          editing ? null : (
-            <Pressable
-              style={({ pressed }) => [styles.headerBtn, pressed && { backgroundColor: c.surfaceContainer }]}
-              onPress={startEditing}
-              accessibilityRole="button"
-              accessibilityLabel="Edit profile"
-            >
-              <MaterialCommunityIcons name="pencil-outline" size={22} color={c.onSurface} />
-            </Pressable>
-          )
-        }
-      />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+    <View style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Identity */}
         <View style={[card, styles.hero]}>
           <View style={[styles.heroBand, { backgroundColor: c.primary, borderTopLeftRadius: layout.radius.lg, borderTopRightRadius: layout.radius.lg }]}>
             <View style={[styles.heroSun, { backgroundColor: c.brandSun }]} />
           </View>
           <View style={[styles.avatar, { backgroundColor: c.primaryFixed, borderColor: c.surfaceCard }]}>
-            <Text style={[type.headlineLg, { color: c.onPrimaryFixedVariant }]}>{initialsOf(editing ? draftName || user.name : user.name)}</Text>
+            <Text style={[type.headlineLg, { color: c.onPrimaryFixedVariant }]}>{initialsOf(user.name)}</Text>
           </View>
           <Text style={[type.headlineMd, styles.center, { color: c.onSurface }]} numberOfLines={1}>
             {user.name}
@@ -140,74 +88,66 @@ export function ProfileScreen({ user, events, cities, costCenters, isAdmin, onOp
           </View>
         </View>
 
-        {editing ? (
-          <View style={[card, styles.form]}>
-            <View style={styles.field}>
-              <Text style={[type.labelSm, styles.label]}>FULL NAME</Text>
-              <TextInput
-                value={draftName}
-                onChangeText={setDraftName}
-                placeholder="Your name"
-                placeholderTextColor={c.outline}
-                autoCapitalize="words"
-                style={[type.bodyLg, styles.input, { borderRadius: layout.radius.md }]}
-              />
-            </View>
-            <SelectField
-              label="ASSIGNED CITY"
-              icon="map-marker-outline"
-              noneLabel="No city"
-              options={cities.map((city) => ({ id: city.id, label: city.state ? `${city.name}, ${city.state}` : city.name }))}
-              valueId={draftCityId}
-              onChange={pickCity}
-            />
-            <SelectField
-              label="COST CENTER"
-              icon="office-building-outline"
-              noneLabel="No cost center"
-              options={draftCostCenters.map((center) => ({ id: center.id, label: `${center.code} • ${center.name}` }))}
-              valueId={draftCostCenterId}
-              onChange={pickCostCenter}
-              emptyHint="No cost centers for this city."
-            />
-            <View style={styles.formActions}>
-              <CaptureButton label="Cancel" variant="secondary" onPress={() => setEditing(false)} disabled={saving} style={styles.flex} />
-              <CaptureButton label="Save changes" icon="check" onPress={() => void save()} loading={saving} style={styles.flex} />
-            </View>
+        {/* Contributions */}
+        <View style={styles.stats}>
+          <StatTile icon="calendar-month" value={stats.event} label="Events" color={c.primary} bg={c.primaryFixed} />
+          <StatTile icon="image-multiple" value={stats.post} label="Posts" color={c.tertiary} bg={c.tertiaryFixed} />
+          <StatTile icon="book-open-page-variant" value={stats.story} label="Stories" color={c.secondary} bg={c.secondaryFixed} />
+        </View>
+
+        <Section title="Details">
+          <View style={card}>
+            <Row icon="email-outline" label="Email" value={user.email} expandable />
+            {user.employeeCode ? <Row icon="card-account-details-outline" label="Employee ID" value={user.employeeCode} /> : null}
+            <Row icon="badge-account-outline" label="Role" value={capitalize(user.role)} />
+            <Row icon="map-marker-outline" label="City" value={cityLabel || "Not set"} />
+            <Row icon="office-building-outline" label="Cost center" value={costCenterLabel || "Not set"} expandable last />
           </View>
-        ) : (
-          <>
-            {/* Contributions */}
-            <View style={styles.stats}>
-              <StatTile icon="calendar-month" value={stats.event} label="Events" color={c.primary} bg={c.primaryFixed} />
-              <StatTile icon="image-multiple" value={stats.post} label="Posts" color={c.tertiary} bg={c.tertiaryFixed} />
-              <StatTile icon="book-open-page-variant" value={stats.story} label="Stories" color={c.secondary} bg={c.secondaryFixed} />
-            </View>
+        </Section>
 
-            <Section title="Details">
-              <View style={card}>
-                <Row icon="email-outline" label="Email" value={user.email} />
-                <Row icon="badge-account-outline" label="Role" value={capitalize(user.role)} />
-                <Row icon="map-marker-outline" label="Assigned city" value={cityLabel || "Not set"} />
-                <Row icon="office-building-outline" label="Cost center" value={costCenterLabel || "Not set"} last />
+        {isSpecialAccess && calendar ? (
+          <Section title="Calendar">
+            {calendar.connection?.connected ? (
+              <View style={[card, styles.calendarCard]}>
+                <View style={styles.calendarRow}>
+                  <View style={[styles.calendarIcon, { backgroundColor: c.tertiaryFixed }]}>
+                    <MaterialCommunityIcons name="google" size={20} color={c.tertiary} />
+                  </View>
+                  <View style={styles.flex}>
+                    <Text style={[type.labelLg, { color: c.onSurface }]}>Google Calendar</Text>
+                    <Text style={[type.bodySm, { color: c.onSurfaceVariant }]} numberOfLines={2}>
+                      Connected as {calendar.connection.email}
+                    </Text>
+                  </View>
+                  <Badge label="Connected" tone="success" pill />
+                </View>
+                <CaptureButton label="View calendar events" icon="calendar-month-outline" onPress={calendar.onOpenEvents} />
+                <View style={styles.calendarFooter}>
+                  <TextButton label="Disconnect" icon={null} onPress={calendar.onDisconnect} />
+                </View>
               </View>
-            </Section>
+            ) : (
+              <CaptureButton
+                label="Connect Calendar"
+                icon="calendar-sync"
+                onPress={calendar.onConnect}
+                loading={calendar.connecting}
+                disabled={calendar.connection === null}
+              />
+            )}
+          </Section>
+        ) : null}
 
-            <Section title="Settings">
-              <View style={card}>
-                {isAdmin ? <Row icon="shield-account-outline" label="Admin console" onPress={onOpenAdmin} /> : null}
-                <Row icon="bell-outline" label="Notification preferences" onPress={() => comingSoon("Notification preferences")} />
-                <Row icon="translate" label="App language" value="English" onPress={() => comingSoon("App language")} />
-                <Row icon="lifebuoy" label="Help & coordinator support" onPress={() => comingSoon("Help & coordinator support")} last />
-              </View>
-            </Section>
+        <Section title="About">
+          <View style={card}>
+            <Row icon="shield-lock-outline" label="Privacy Policy" onPress={() => void WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL)} last />
+          </View>
+        </Section>
 
-            <CaptureButton label="Log out" icon="logout" variant="secondary" iconColor={c.statusDanger} onPress={onLogout} />
-            <Text style={[type.bodySm, styles.center, { color: c.onSurfaceVariant }]}>CaptureAkanksha • v{version}</Text>
-          </>
-        )}
+        <CaptureButton label="Log out" icon="logout" variant="secondary" iconColor={c.statusDanger} onPress={onLogout} />
+        <Text style={[type.bodySm, styles.center, { color: c.onSurfaceVariant }]}>CaptureAkanksha • v{version}</Text>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -234,18 +174,31 @@ function StatTile({ icon, value, label, color, bg }: { icon: IconName; value: nu
   );
 }
 
-type RowProps = { icon: IconName; label: string; value?: string; onPress?: () => void; last?: boolean };
+type RowProps = {
+  icon: IconName;
+  label: string;
+  value?: string;
+  onPress?: () => void;
+  /** Long values are cut to one line; tapping the row shows the full text. */
+  expandable?: boolean;
+  last?: boolean;
+};
 
 /** Icon, label and value; with onPress it becomes a tappable row with a chevron. */
-function Row({ icon, label, value, onPress, last }: RowProps) {
+function Row({ icon, label, value, onPress, expandable, last }: RowProps) {
   const { c, type } = useCaptureTheme();
+  const [expanded, setExpanded] = useState(false);
+  const toggle = expandable && value ? () => setExpanded((open) => !open) : undefined;
+  const press = onPress ?? toggle;
   return (
     <Pressable
-      onPress={onPress}
-      disabled={!onPress}
-      accessibilityRole={onPress ? "button" : undefined}
+      onPress={press}
+      disabled={!press}
+      accessibilityRole={press ? "button" : undefined}
+      accessibilityState={toggle ? { expanded } : undefined}
       style={({ pressed }) => [
         rowStyles.row,
+        expanded && rowStyles.rowExpanded,
         !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.outlineVariant },
         pressed && { backgroundColor: c.surfaceContainerLow },
       ]}
@@ -255,75 +208,12 @@ function Row({ icon, label, value, onPress, last }: RowProps) {
       </View>
       <Text style={[type.labelLg, rowStyles.label, { color: c.onSurface }]}>{label}</Text>
       {value ? (
-        <Text style={[type.bodyMd, rowStyles.value, { color: c.onSurfaceVariant }]} numberOfLines={1}>
+        <Text style={[type.bodyMd, rowStyles.value, { color: c.onSurfaceVariant }]} numberOfLines={expanded ? undefined : 1}>
           {value}
         </Text>
       ) : null}
       {onPress ? <MaterialCommunityIcons name="chevron-right" size={20} color={c.outline} /> : null}
     </Pressable>
-  );
-}
-
-type SelectFieldProps = {
-  label: string;
-  icon: IconName;
-  noneLabel: string;
-  options: SelectOption[];
-  valueId: string | null;
-  onChange: (id: string | null) => void;
-  emptyHint?: string;
-};
-
-/** Form field that opens a sheet of options; includes a "none" choice. */
-function SelectField({ label, icon, noneLabel, options, valueId, onChange, emptyHint }: SelectFieldProps) {
-  const { c, type, layout } = useCaptureTheme();
-  const [open, setOpen] = useState(false);
-  const current = options.find((option) => option.id === valueId)?.label;
-  const rows: Array<{ id: string | null; label: string }> = [{ id: null, label: noneLabel }, ...options];
-
-  return (
-    <View style={selectStyles.field}>
-      <Text style={[type.labelSm, selectStyles.label, { color: c.onSurfaceVariant }]}>{label}</Text>
-      <Pressable
-        onPress={() => setOpen(true)}
-        accessibilityRole="button"
-        accessibilityLabel={`${label}: ${current ?? noneLabel}`}
-        style={({ pressed }) => [
-          selectStyles.control,
-          { borderRadius: layout.radius.md, borderColor: c.chipBorder, backgroundColor: pressed ? c.surfaceContainerLow : c.surfaceCard },
-        ]}
-      >
-        <MaterialCommunityIcons name={icon} size={20} color={c.onSurfaceVariant} />
-        <Text style={[type.bodyLg, selectStyles.value, { color: current ? c.onSurface : c.outline }]} numberOfLines={1}>
-          {current ?? noneLabel}
-        </Text>
-        <MaterialCommunityIcons name="chevron-down" size={20} color={c.onSurfaceVariant} />
-      </Pressable>
-      {options.length === 0 && emptyHint ? <Text style={[type.bodySm, { color: c.onSurfaceVariant }]}>{emptyHint}</Text> : null}
-
-      <BottomSheet visible={open} onClose={() => setOpen(false)} title={capitalize(label.toLowerCase())}>
-        <View style={selectStyles.list}>
-          {rows.map((row) => {
-            const selected = row.id === valueId;
-            return (
-              <Pressable
-                key={row.id ?? "__none"}
-                onPress={() => {
-                  onChange(row.id);
-                  setOpen(false);
-                }}
-                style={[selectStyles.option, { borderRadius: layout.radius.md, backgroundColor: selected ? c.surfaceContainer : c.surfaceContainerLow }]}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-              >
-                <Text style={[type.labelLg, selectStyles.value, { color: c.onSurface }]}>{row.label}</Text>
-                {selected ? <MaterialCommunityIcons name="check" size={18} color={c.primary} /> : null}
-              </Pressable>
-            );
-          })}
-        </View>
-      </BottomSheet>
-    </View>
   );
 }
 
@@ -348,20 +238,11 @@ function getStyles(c: CaptureColors) {
     center: { textAlign: "center", paddingHorizontal: 16 },
     badges: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, marginTop: 10, paddingHorizontal: 16 },
     stats: { flexDirection: "row", gap: 12 },
-    form: { padding: 16, gap: 16 },
-    field: { gap: 8 },
-    label: { color: c.onSurfaceVariant, letterSpacing: 0.8 },
-    input: {
-      minHeight: 48,
-      paddingHorizontal: 14,
-      borderWidth: 1,
-      borderColor: c.chipBorder,
-      backgroundColor: c.surfaceCard,
-      color: c.onSurface,
-    },
-    formActions: { flexDirection: "row", gap: 12, marginTop: 4 },
     flex: { flex: 1 },
-    headerBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+    calendarCard: { padding: 16, gap: 14 },
+    calendarRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+    calendarIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+    calendarFooter: { alignItems: "center" },
   });
 }
 
@@ -377,16 +258,8 @@ const tileStyles = StyleSheet.create({
 
 const rowStyles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 60, paddingHorizontal: 16 },
+  rowExpanded: { paddingVertical: 12 },
   icon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   label: { flexShrink: 0 },
   value: { flex: 1, textAlign: "right" },
-});
-
-const selectStyles = StyleSheet.create({
-  field: { gap: 8 },
-  label: { letterSpacing: 0.8 },
-  control: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48, paddingHorizontal: 14, borderWidth: 1 },
-  value: { flex: 1 },
-  list: { gap: 8, paddingBottom: 8 },
-  option: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingHorizontal: 12 },
 });

@@ -1,6 +1,7 @@
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCaptureTheme } from "../../theme/useCaptureTheme";
+import { RemoteImage } from "./RemoteImage";
 
 export type MediaBadge = { label: string; icon?: keyof typeof MaterialCommunityIcons.glyphMap; iconColor?: string };
 
@@ -21,13 +22,7 @@ export function MediaPreview({ uri, kind, badge, aspectRatio = 16 / 10, onPress 
       disabled={!onPress}
       style={[styles.frame, { aspectRatio, borderRadius: layout.radius.md, backgroundColor: c.surfaceContainer }]}
     >
-      {uri ? (
-        <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-      ) : (
-        <View style={styles.center}>
-          <MaterialCommunityIcons name={kind === "video" ? "video-outline" : "image-outline"} size={28} color={c.onSurfaceVariant} />
-        </View>
-      )}
+      <RemoteImage uri={uri} fallbackIcon={kind === "video" ? "video-outline" : "image-outline"} />
       {badge ? (
         <View style={styles.badge}>
           {badge.icon ? <MaterialCommunityIcons name={badge.icon} size={13} color={badge.iconColor ?? "#fff"} /> : null}

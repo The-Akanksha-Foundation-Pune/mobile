@@ -40,6 +40,14 @@
     "plugins": [
       "expo-web-browser",
       [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow Capture Akanksha to use the camera to take photos and videos of event moments.",
+          "photosPermission": "Allow Capture Akanksha to access your photos so you can share pictures from events.",
+          "microphonePermission": "Allow Capture Akanksha to use the microphone to record sound in your event videos."
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "Allow Capture Akanksha to use your location to suggest your city and show nearby events first."

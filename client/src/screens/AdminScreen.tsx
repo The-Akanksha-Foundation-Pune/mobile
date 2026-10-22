@@ -1,22 +1,38 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useColorScheme } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { AI_POLISH_ENABLED } from "../config/constants";
 import {
   createCityAdmin,
+  createCostCenterAdmin,
   deleteCalendarEntry,
   fetchAdminCalendar,
   fetchAdminEvents,
   fetchAllCitiesAdmin,
   fetchAllCostCentersAdmin,
+  fetchSettings,
   moderateEvent,
+  updateLimits,
   notifyEventDonors,
+  updateCostCenterAdmin,
   upsertCalendarEntry,
 } from "../services/api";
 import { filterAllowedCities } from "../config/cities";
-import type { CalendarEntry, City, CostCenter, EventItem, EventStatus } from "../types/app";
+import type { CalendarEntry, City, CostCenter, EventItem } from "../types/app";
 import { CaptureHeader } from "../components";
-import { darkPalette, palette } from "../theme/theme";
+import {
+  Badge,
+  CaptureButton,
+  CaptureInput,
+  ChipGroup,
+  EmptyState,
+  IconButton,
+  PillTabs,
+  TagChip,
+  TextButton, popupAlert } from "../components/capture";
+import { useCaptureTheme, type CaptureColors } from "../theme/useCaptureTheme";
+import { contentKindOf, eventStatusPresentation, formatEventDate, reviewStatusOf, reviewStatusPresentation } from "../utils/eventPresenters";
 import { groupCostCentersByCity } from "../utils/costCenterGrouping";
 
 type AdminScreenProps = {
@@ -24,32 +40,57 @@ type AdminScreenProps = {
   onClose: () => void;
 };
 
-type AdminTab = "events" | "calendar" | "cities";
+type AdminTab = "events" | "calendar" | "cities" | "costCenters" | "limits";
 
+const TABS: { id: AdminTab; label: string }[] = [
+  { id: "events", label: "Content" },
+  { id: "calendar", label: "Calendar" },
+  { id: "cities", label: "Cities" },
+  { id: "costCenters", label: "Cost centers" },
+  { id: "limits", label: "Limits" },
+];
+
+
+/** Settings console for Super Admins: content status, calendar entries, cities and cost centers. */
 export function AdminScreen({ token, onClose }: AdminScreenProps) {
+  const { c, type } = useCaptureTheme();
+  const styles = useMemo(() => getStyles(c), [c]);
   const [tab, setTab] = useState<AdminTab>("events");
   const [events, setEvents] = useState<EventItem[]>([]);
   const [calendar, setCalendar] = useState<CalendarEntry[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
+  const [busy, setBusy] = useState(false);
   const [newCityName, setNewCityName] = useState("");
   const [newCityState, setNewCityState] = useState("");
   const [calendarTitle, setCalendarTitle] = useState("");
   const [calendarDate, setCalendarDate] = useState(new Date().toISOString().slice(0, 10));
   const [calendarLocation, setCalendarLocation] = useState("");
   const [calendarCostCenterId, setCalendarCostCenterId] = useState("");
-  const isDark = useColorScheme() === "dark";
-  const styles = useMemo(() => getStyles(isDark), [isDark]);
-  const colors = isDark ? darkPalette : palette;
-  const costCenterSections = useMemo(() => groupCostCentersByCity(costCenters), [costCenters]);
+  const [limitPosts, setLimitPosts] = useState("5");
+  const [limitStories, setLimitStories] = useState("1");
+  const [limitPolish, setLimitPolish] = useState("2");
+  const scrollRef = useRef<ScrollView>(null);
+  const [editingCostCenter, setEditingCostCenter] = useState<CostCenter | null>(null);
+  const [costCenterCode, setCostCenterCode] = useState("");
+  const [costCenterName, setCostCenterName] = useState("");
+  const [costCenterCityId, setCostCenterCityId] = useState("");
+  // Turned-off cost centers stay manageable here but can't be picked for new calendar entries.
+  const costCenterSections = useMemo(() => groupCostCentersByCity(costCenters.filter((item) => item.isActive)), [costCenters]);
+  const allCostCenterSections = useMemo(() => groupCostCentersByCity(costCenters), [costCenters]);
+  const activeCities = useMemo(() => cities.filter((city) => city.isActive), [cities]);
 
   async function refresh() {
-    const [adminEvents, adminCalendar, adminCities, adminCostCenters] = await Promise.all([
+    const [adminEvents, adminCalendar, adminCities, adminCostCenters, settings] = await Promise.all([
       fetchAdminEvents(token),
       fetchAdminCalendar(token),
       fetchAllCitiesAdmin(token),
       fetchAllCostCentersAdmin(token),
+      fetchSettings(token),
     ]);
+    setLimitPosts(String(settings.limits.posts));
+    setLimitStories(String(settings.limits.stories));
+    setLimitPolish(String(settings.limits.polish));
     setEvents(adminEvents);
     setCalendar(adminCalendar);
     setCities(filterAllowedCities(adminCities));
@@ -60,53 +101,111 @@ export function AdminScreen({ token, onClose }: AdminScreenProps) {
   }
 
   useEffect(() => {
-    void refresh().catch((error) => Alert.alert("Admin load failed", (error as Error).message));
+    void refresh().catch((error) => popupAlert("Admin load failed", (error as Error).message));
   }, [token]);
 
-  async function updateEvent(eventId: string, patch: {
-    eventStatus?: EventStatus;
-    approvedForGallery?: boolean;
-    cityId?: string | null;
-  }) {
+  async function run(label: string, action: () => Promise<void>) {
     try {
-      await moderateEvent({ token, eventId, ...patch });
+      setBusy(true);
+      await action();
       await refresh();
     } catch (error) {
-      Alert.alert("Update failed", (error as Error).message);
+      popupAlert(label, (error as Error).message);
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function handleCreateCity() {
+  function updateEvent(eventId: string, patch: { approvedForGallery?: boolean }) {
+    return run("Update failed", async () => {
+      await moderateEvent({ token, eventId, ...patch });
+    });
+  }
+
+  function handleCreateCity() {
     if (!newCityName.trim()) {
-      Alert.alert("Missing city", "Enter a city name.");
+      popupAlert("Missing city", "Enter a city name.");
       return;
     }
-    try {
+    void run("Create city failed", async () => {
       await createCityAdmin({ token, name: newCityName.trim(), state: newCityState.trim() || undefined });
       setNewCityName("");
       setNewCityState("");
-      await refresh();
-    } catch (error) {
-      Alert.alert("Create city failed", (error as Error).message);
-    }
+    });
   }
 
-  async function handleNotifyDonors(eventId: string) {
-    try {
-      const result = await notifyEventDonors(token, eventId);
-      Alert.alert("Donors notified", `Queued updates for ${result.notifiedCount} donor(s).`);
-    } catch (error) {
-      Alert.alert("Notify failed", (error as Error).message);
-    }
+  function resetCostCenterForm() {
+    setEditingCostCenter(null);
+    setCostCenterCode("");
+    setCostCenterName("");
+    setCostCenterCityId("");
   }
 
-  async function handleCreateCalendarEntry() {
-    if (!calendarTitle.trim() || !calendarCostCenterId) {
-      Alert.alert("Missing fields", "Title and cost center are required.");
+  function startEditCostCenter(center: CostCenter) {
+    setEditingCostCenter(center);
+    setCostCenterCode(center.code);
+    setCostCenterName(center.name);
+    setCostCenterCityId(center.cityId || "");
+    // The form sits at the top of the tab; bring it into view.
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }
+
+  function handleSaveCostCenter() {
+    if (!costCenterCode.trim() || !costCenterName.trim() || !costCenterCityId) {
+      popupAlert("Missing fields", "Code, name and city are required.");
       return;
     }
-    const center = costCenters.find((c) => c.id === calendarCostCenterId);
-    try {
+    const input = { code: costCenterCode.trim(), name: costCenterName.trim(), cityId: costCenterCityId };
+    const editing = editingCostCenter;
+    void run(editing ? "Update cost center failed" : "Create cost center failed", async () => {
+      if (editing) await updateCostCenterAdmin(token, editing.id, input);
+      else await createCostCenterAdmin(token, input);
+      resetCostCenterForm();
+    });
+  }
+
+  function handleToggleCostCenter(center: CostCenter) {
+    const turningOff = center.isActive;
+    popupAlert(
+      turningOff ? "Turn off cost center?" : "Turn on cost center?",
+      turningOff
+        ? `${center.code} will no longer be offered when choosing a cost center. Existing events keep it.`
+        : `${center.code} will be offered again when choosing a cost center.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: turningOff ? "Turn off" : "Turn on",
+          style: turningOff ? "destructive" : "default",
+          onPress: () =>
+            void run("Update cost center failed", async () => {
+              await updateCostCenterAdmin(token, center.id, { isActive: !turningOff });
+            }),
+        },
+      ]
+    );
+  }
+
+  function handleNotifyDonors(event: EventItem) {
+    popupAlert("Notify donors?", `Send an update about "${event.title || "Untitled"}" to the donors of its cost center.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Send",
+        onPress: () =>
+          void run("Notify failed", async () => {
+            const result = await notifyEventDonors(token, event.id);
+            popupAlert("Donors notified", `Queued updates for ${result.notifiedCount} donor(s).`);
+          }),
+      },
+    ]);
+  }
+
+  function handleCreateCalendarEntry() {
+    if (!calendarTitle.trim() || !calendarCostCenterId) {
+      popupAlert("Missing fields", "Title and cost center are required.");
+      return;
+    }
+    const center = costCenters.find((item) => item.id === calendarCostCenterId);
+    void run("Calendar save failed", async () => {
       await upsertCalendarEntry({
         token,
         payload: {
@@ -120,158 +219,258 @@ export function AdminScreen({ token, onClose }: AdminScreenProps) {
       });
       setCalendarTitle("");
       setCalendarLocation("");
-      await refresh();
-    } catch (error) {
-      Alert.alert("Calendar save failed", (error as Error).message);
+    });
+  }
+
+  function handleSaveLimits() {
+    const posts = Number(limitPosts);
+    const stories = Number(limitStories);
+    const polish = Number(limitPolish);
+    const valid = (value: number) => Number.isInteger(value) && value >= 0 && value <= 100;
+    if (!valid(posts) || !valid(stories) || !valid(polish)) {
+      popupAlert("Check the numbers", "Limits must be whole numbers between 0 and 100.");
+      return;
     }
+    void run("Save limits failed", async () => {
+      const result = await updateLimits(token, { posts, stories, polish });
+      setLimitPosts(String(result.limits.posts));
+      setLimitStories(String(result.limits.stories));
+      setLimitPolish(String(result.limits.polish));
+      popupAlert(
+        "Saved",
+        `Each person can now add ${result.limits.posts} posts and ${result.limits.stories} ${result.limits.stories === 1 ? "story" : "stories"} per event${
+          AI_POLISH_ENABLED ? `, and polish each description ${result.limits.polish} ${result.limits.polish === 1 ? "time" : "times"} with AI` : ""
+        }.`
+      );
+    });
+  }
+
+  function handleDeleteEntry(entry: CalendarEntry) {
+    popupAlert("Delete entry?", `"${entry.title}" will be removed from the calendar.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: () => void run("Delete failed", () => deleteCalendarEntry(token, entry.id)) },
+    ]);
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={["top"]}>
       <CaptureHeader
-        subtitle=""
         title="Admin console"
+        subtitle="Content, calendar, cities and cost centers"
         onBack={onClose}
-        right={
-          <Pressable
-            style={styles.refreshBtn}
-            onPress={() => void refresh()}
-            accessibilityLabel="Refresh"
-          >
-            <Ionicons name="refresh" size={22} color={isDark ? "#edf0ff" : "#141b2c"} />
-          </Pressable>
-        }
+        right={<IconButton icon="refresh" size={44} onPress={() => void refresh()} accessibilityLabel="Refresh" />}
       />
 
-      <View style={styles.tabRow}>
-        {(["events", "calendar", "cities"] as AdminTab[]).map((item) => (
-          <Pressable key={item} style={[styles.tab, tab === item && styles.tabActive]} onPress={() => setTab(item)}>
-            <Text style={[styles.tabText, tab === item && styles.tabTextActive]}>
-              {item === "events" ? "Content" : item === "calendar" ? "Calendar" : "Cities"}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <PillTabs tabs={TABS} activeId={tab} onSelect={(id) => setTab(id as AdminTab)} variant="inverse" size="md" />
 
-      <ScrollView contentContainerStyle={styles.content}>
         {tab === "events" ? (
-          events.map((event) => (
-            <View key={event.id} style={styles.card}>
-              <Text style={styles.cardTitle}>{event.title || "Untitled"}</Text>
-              <Text style={styles.cardMeta}>
-                {event.eventTypeName} • {event.eventStatus} • {event.costCenterCode || "No CC"} • {event.eventDate}
-              </Text>
-              <Text style={styles.cardCaption} numberOfLines={2}>
-                {event.caption}
-              </Text>
-              <View style={styles.actionRow}>
-                <Pressable style={styles.chip} onPress={() => void updateEvent(event.id, { eventStatus: "ongoing" })}>
-                  <Text style={styles.chipText}>Ongoing</Text>
-                </Pressable>
-                <Pressable style={styles.chip} onPress={() => void updateEvent(event.id, { eventStatus: "upcoming" })}>
-                  <Text style={styles.chipText}>Upcoming</Text>
-                </Pressable>
-                <Pressable style={styles.chip} onPress={() => void updateEvent(event.id, { eventStatus: "complete" })}>
-                  <Text style={styles.chipText}>Complete</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.chip, event.approvedForGallery && styles.chipActive]}
-                  onPress={() =>
-                    void updateEvent(event.id, { approvedForGallery: !event.approvedForGallery, eventStatus: "complete" })
-                  }
-                >
-                  <Text style={[styles.chipText, event.approvedForGallery && styles.chipTextActive]}>
-                    {event.approvedForGallery ? "Approved" : "Approve gallery"}
-                  </Text>
-                </Pressable>
-                <Pressable style={styles.chip} onPress={() => void handleNotifyDonors(event.id)}>
-                  <Text style={styles.chipText}>Notify donors</Text>
-                </Pressable>
-              </View>
+          events.length === 0 ? (
+            <EmptyState icon="file-document-outline" title="No content yet" message="Events, posts and stories will show up here." />
+          ) : (
+            <View style={styles.list}>
+              {events.map((event) => {
+                const kind = contentKindOf(event);
+                const status = eventStatusPresentation(event.eventStatus);
+                const review = reviewStatusPresentation(reviewStatusOf(event));
+                return (
+                  <View key={event.id} style={styles.card}>
+                    <View style={styles.cardHead}>
+                      <Text style={[type.labelLg, styles.grow, { color: c.onSurface }]} numberOfLines={2}>
+                        {event.title || (kind === "post" && event.parentTitle ? `Post on ${event.parentTitle}` : "Untitled")}
+                      </Text>
+                      <Badge label={kind.charAt(0).toUpperCase() + kind.slice(1)} tone={kind === "event" ? "tertiary" : kind === "story" ? "secondary" : "neutral"} />
+                    </View>
+                    <Text style={[type.bodySm, { color: c.onSurfaceVariant }]} numberOfLines={2}>
+                      {event.caption}
+                    </Text>
+                    <View style={styles.tags}>
+                      <TagChip icon="calendar-blank-outline" label={formatEventDate(event.eventDate)} />
+                      {event.costCenterCode ? <TagChip icon="tag-outline" label={event.costCenterCode} /> : null}
+                    </View>
+                    <View style={styles.badges}>
+                      <Badge label={status.label} tone={status.tone} pill />
+                      {kind !== "event" ? <Badge label={review.label} tone={review.tone} pill /> : null}
+                    </View>
+                    <View style={[styles.actions, { borderTopColor: c.cardBorder }]}>
+                      {kind !== "event" ? (
+                        <CaptureButton
+                        label={event.approvedForGallery ? "Approved" : "Approve"}
+                        variant={event.approvedForGallery ? "secondary" : "success"}
+                        size="sm"
+                        icon={event.approvedForGallery ? "check-circle" : "check"}
+                        iconColor={event.approvedForGallery ? c.statusSuccess : undefined}
+                        disabled={busy}
+                        onPress={() => void updateEvent(event.id, { approvedForGallery: !event.approvedForGallery })}
+                        style={styles.grow}
+                      />
+                      ) : null}
+                      {event.costCenterId ? <TextButton label="Notify donors" icon="send-outline" onPress={() => handleNotifyDonors(event)} /> : null}
+                    </View>
+                  </View>
+                );
+              })}
             </View>
-          ))
+          )
         ) : null}
 
         {tab === "calendar" ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Add calendar event</Text>
-            <TextInput style={styles.field} value={calendarTitle} onChangeText={setCalendarTitle} placeholder="Title" placeholderTextColor={colors.inkSoft} />
-            <TextInput style={styles.field} value={calendarDate} onChangeText={setCalendarDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkSoft} />
-            <TextInput style={styles.field} value={calendarLocation} onChangeText={setCalendarLocation} placeholder="Location" placeholderTextColor={colors.inkSoft} />
-            <Text style={styles.fieldLabel}>Cost center</Text>
-            {costCenterSections.map((section) => (
-              <View key={section.cityId} style={styles.ccCityGroup}>
-                <View style={styles.ccCityHeader}>
-                  <Ionicons name="business" size={16} color={colors.brand} />
-                  <Text style={styles.ccCityTitle}>{section.cityName}</Text>
+          <View style={styles.list}>
+            <View style={styles.card}>
+              <Text style={[type.headlineSm, { color: c.onSurface }]}>Add calendar entry</Text>
+              <CaptureInput label="Title" value={calendarTitle} onChangeText={setCalendarTitle} placeholder="e.g. Annual Health Camp" />
+              <CaptureInput label="Date" value={calendarDate} onChangeText={setCalendarDate} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              <CaptureInput label="Location" value={calendarLocation} onChangeText={setCalendarLocation} placeholder="Venue or centre" />
+              <Text style={[type.labelMd, { color: c.onSurfaceVariant }]}>Cost center</Text>
+              {costCenterSections.map((section) => (
+                <View key={section.cityId} style={styles.group}>
+                  <View style={styles.groupHead}>
+                    <MaterialCommunityIcons name="map-marker-outline" size={16} color={c.tertiary} />
+                    <Text style={[type.labelSm, { color: c.tertiary }]}>{section.cityName.toUpperCase()}</Text>
+                  </View>
+                  <ChipGroup
+                    options={section.data.map((item) => ({ id: item.id, label: item.code }))}
+                    valueId={calendarCostCenterId}
+                    onChange={setCalendarCostCenterId}
+                  />
                 </View>
-                <View style={styles.ccChipRow}>
-                  {section.data.map((item) => (
-                    <Pressable
-                      key={item.id}
-                      style={[styles.chip, calendarCostCenterId === item.id && styles.chipActive]}
-                      onPress={() => setCalendarCostCenterId(item.id)}
-                    >
-                      <Ionicons
-                        name="grid"
-                        size={14}
-                        color={calendarCostCenterId === item.id ? "#fff" : colors.inkSoft}
-                      />
-                      <Text style={[styles.chipText, calendarCostCenterId === item.id && styles.chipTextActive]}>
-                        {item.code}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            ))}
-            <Pressable style={styles.primaryBtn} onPress={() => void handleCreateCalendarEntry()}>
-              <Text style={styles.primaryBtnText}>Save calendar entry</Text>
-            </Pressable>
+              ))}
+              <CaptureButton label="Save calendar entry" icon="calendar-plus" onPress={handleCreateCalendarEntry} loading={busy} />
+            </View>
 
-            {calendar.map((entry) => (
-              <View key={entry.id} style={styles.card}>
-                <Text style={styles.cardTitle}>{entry.title}</Text>
-                <Text style={styles.cardMeta}>
-                  {entry.costCenterCode || entry.costCenterName} • {entry.eventDate}{" "}
-                  {entry.location ? `• ${entry.location}` : ""}
+            {calendar.length === 0 ? (
+              <EmptyState icon="calendar-blank-outline" title="No calendar entries" message="Entries you add appear in the app's calendar." />
+            ) : (
+              calendar.map((entry) => (
+                <View key={entry.id} style={styles.card}>
+                  <Text style={[type.labelLg, { color: c.onSurface }]}>{entry.title}</Text>
+                  <View style={styles.tags}>
+                    <TagChip icon="calendar-blank-outline" label={formatEventDate(entry.eventDate)} />
+                    {entry.costCenterCode || entry.costCenterName ? <TagChip icon="tag-outline" label={entry.costCenterCode || entry.costCenterName} /> : null}
+                    {entry.location ? <TagChip icon="map-marker-outline" label={entry.location} /> : null}
+                  </View>
+                  <View style={[styles.actions, styles.actionsEnd, { borderTopColor: c.cardBorder }]}>
+                    <CaptureButton label="Delete" variant="secondary" size="sm" icon="trash-can-outline" iconColor={c.statusDanger} disabled={busy} onPress={() => handleDeleteEntry(entry)} />
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        ) : null}
+
+        {tab === "limits" ? (
+          <View style={styles.list}>
+            <View style={styles.card}>
+              <Text style={[type.headlineSm, { color: c.onSurface }]}>Per-person limits</Text>
+              <Text style={[type.bodySm, { color: c.onSurfaceVariant }]}>
+                How many posts and stories one person may add to a single event. Pending and approved items both count. Super Admins are not limited.
+              </Text>
+              <CaptureInput label="Posts per person, per event" value={limitPosts} onChangeText={setLimitPosts} keyboardType="number-pad" placeholder="5" />
+              <CaptureInput label="Stories per person, per event" value={limitStories} onChangeText={setLimitStories} keyboardType="number-pad" placeholder="1" />
+              {AI_POLISH_ENABLED ? null : (
+                <CaptureButton label="Save limits" icon="content-save-outline" onPress={handleSaveLimits} loading={busy} />
+              )}
+            </View>
+            {AI_POLISH_ENABLED ? (
+              <View style={styles.card}>
+                <Text style={[type.headlineSm, { color: c.onSurface }]}>AI polish</Text>
+                <Text style={[type.bodySm, { color: c.onSurfaceVariant }]}>
+                  How many times "Polish with AI" may run on one description while writing a post, story or event. Each run calls Google Gemini. Set 0 to turn it off. Applies to everyone, including Super Admins.
                 </Text>
-                <Pressable
-                  style={styles.dangerBtn}
-                  onPress={() =>
-                    void deleteCalendarEntry(token, entry.id)
-                      .then(refresh)
-                      .catch((error) => Alert.alert("Delete failed", (error as Error).message))
-                  }
-                >
-                  <Text style={styles.dangerBtnText}>Delete</Text>
-                </Pressable>
+                <CaptureInput label="Polishes per description" value={limitPolish} onChangeText={setLimitPolish} keyboardType="number-pad" placeholder="2" />
+                <CaptureButton label="Save limits" icon="content-save-outline" onPress={handleSaveLimits} loading={busy} />
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {tab === "cities" ? (
+          <View style={styles.list}>
+            <View style={styles.card}>
+              <Text style={[type.headlineSm, { color: c.onSurface }]}>Add city</Text>
+              <CaptureInput label="City name" value={newCityName} onChangeText={setNewCityName} placeholder="e.g. Nagpur" />
+              <CaptureInput label="State" value={newCityState} onChangeText={setNewCityState} placeholder="e.g. Maharashtra" />
+              <CaptureButton label="Create city" icon="plus" onPress={handleCreateCity} loading={busy} />
+            </View>
+            {cities.map((city) => (
+              <View key={city.id} style={[styles.card, styles.cityRow]}>
+                <View style={[styles.cityIcon, { backgroundColor: c.surfaceContainerHigh }]}>
+                  <MaterialCommunityIcons name="city-variant-outline" size={20} color={c.primary} />
+                </View>
+                <View style={styles.grow}>
+                  <Text style={[type.labelLg, { color: c.onSurface }]}>{city.name}</Text>
+                  <Text style={[type.bodySm, { color: c.onSurfaceVariant }]}>{city.state || "State not set"}</Text>
+                </View>
+                <Badge label={city.isActive ? "Active" : "Inactive"} tone={city.isActive ? "success" : "neutral"} pill />
               </View>
             ))}
           </View>
         ) : null}
 
-        {tab === "cities" ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Add city</Text>
-            <TextInput style={styles.field} value={newCityName} onChangeText={setNewCityName} placeholder="City name" placeholderTextColor={colors.inkSoft} />
-            <TextInput style={styles.field} value={newCityState} onChangeText={setNewCityState} placeholder="State" placeholderTextColor={colors.inkSoft} />
-            <Pressable style={styles.primaryBtn} onPress={() => void handleCreateCity()}>
-              <Text style={styles.primaryBtnText}>Create city</Text>
-            </Pressable>
-            {cities.map((city) => (
-              <View key={city.id} style={styles.card}>
-                <View style={styles.cityTitleRow}>
-                  <View style={styles.cityIcon}>
-                    <Ionicons name="business" size={18} color={colors.brand} />
-                  </View>
-                  <Text style={styles.cardTitle}>{city.name}</Text>
-                </View>
-                <Text style={styles.cardMeta}>
-                  {city.state || "—"} • {city.isActive ? "Active" : "Inactive"}
+        {tab === "costCenters" ? (
+          <View style={styles.list}>
+            <View style={styles.card}>
+              <Text style={[type.headlineSm, { color: c.onSurface }]}>{editingCostCenter ? `Edit ${editingCostCenter.code}` : "Add cost center"}</Text>
+              {editingCostCenter?.financeId ? (
+                <Text style={[type.bodySm, { color: c.statusWarning }]}>
+                  This cost center comes from Finance. If Finance sync is on, its name, city and status are replaced by Finance's values on the next sync.
                 </Text>
+              ) : null}
+              <CaptureInput label="Code" value={costCenterCode} onChangeText={setCostCenterCode} placeholder="e.g. COACH-PUNE" autoCapitalize="characters" />
+              <CaptureInput label="Name" value={costCenterName} onChangeText={setCostCenterName} placeholder="e.g. Coaches - Pune" />
+              <Text style={[type.labelMd, { color: c.onSurfaceVariant }]}>City</Text>
+              <ChipGroup options={activeCities.map((city) => ({ id: city.id, label: city.name }))} valueId={costCenterCityId} onChange={setCostCenterCityId} />
+              <View style={styles.formActions}>
+                {editingCostCenter ? <CaptureButton label="Cancel" variant="secondary" onPress={resetCostCenterForm} disabled={busy} style={styles.grow} /> : null}
+                <CaptureButton
+                  label={editingCostCenter ? "Save changes" : "Create cost center"}
+                  icon={editingCostCenter ? "content-save-outline" : "plus"}
+                  onPress={handleSaveCostCenter}
+                  loading={busy}
+                  style={styles.grow}
+                />
               </View>
-            ))}
+            </View>
+
+            {allCostCenterSections.length === 0 ? (
+              <EmptyState icon="tag-outline" title="No cost centers" message="Cost centers you add appear here, grouped by city." />
+            ) : (
+              allCostCenterSections.map((section) => (
+                <View key={section.cityId} style={styles.group}>
+                  <View style={styles.groupHead}>
+                    <MaterialCommunityIcons name="map-marker-outline" size={16} color={c.tertiary} />
+                    <Text style={[type.labelSm, { color: c.tertiary }]}>{section.cityName.toUpperCase()}</Text>
+                  </View>
+                  {section.data.map((center) => (
+                    <View key={center.id} style={styles.card}>
+                      <View style={styles.cardHead}>
+                        <View style={styles.grow}>
+                          <Text style={[type.labelLg, { color: c.onSurface }]}>{center.code}</Text>
+                          <Text style={[type.bodySm, { color: c.onSurfaceVariant }]}>{center.name}</Text>
+                        </View>
+                        <Badge label={center.isActive ? "Active" : "Off"} tone={center.isActive ? "success" : "neutral"} pill />
+                      </View>
+                      <View style={styles.tags}>
+                        <TagChip icon="account-heart-outline" label={`${center.donorCount ?? 0} ${center.donorCount === 1 ? "donor" : "donors"}`} />
+                        {center.financeId ? <TagChip icon="sync" label="From Finance" /> : null}
+                      </View>
+                      <View style={[styles.actions, styles.actionsEnd, { borderTopColor: c.cardBorder }]}>
+                        <CaptureButton label="Edit" variant="secondary" size="sm" icon="pencil-outline" disabled={busy} onPress={() => startEditCostCenter(center)} />
+                        <CaptureButton
+                          label={center.isActive ? "Turn off" : "Turn on"}
+                          variant="secondary"
+                          size="sm"
+                          icon={center.isActive ? "toggle-switch-off-outline" : "toggle-switch-outline"}
+                          iconColor={center.isActive ? c.statusDanger : c.statusSuccess}
+                          disabled={busy}
+                          onPress={() => handleToggleCostCenter(center)}
+                        />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ))
+            )}
           </View>
         ) : null}
       </ScrollView>
@@ -279,97 +478,29 @@ export function AdminScreen({ token, onClose }: AdminScreenProps) {
   );
 }
 
-function getStyles(isDark: boolean) {
-  const colors = isDark ? darkPalette : palette;
+function getStyles(c: CaptureColors) {
   return StyleSheet.create({
-    safe: { flex: 1, backgroundColor: isDark ? "#0d1322" : "#f4f6fa" },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      backgroundColor: colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    refreshBtn: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    tabRow: { flexDirection: "row", backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
-    tab: { flex: 1, alignItems: "center", paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: "transparent" },
-    tabActive: { borderBottomColor: colors.brand },
-    tabText: { fontSize: 12, fontWeight: "700", color: colors.inkSoft },
-    tabTextActive: { color: colors.brand },
-    content: { padding: 14, gap: 10, paddingBottom: 30 },
-    section: { gap: 10 },
-    sectionTitle: { fontSize: 15, fontWeight: "800", color: colors.ink },
-    field: {
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      padding: 12,
-      color: colors.ink,
-    },
+    safe: { flex: 1, backgroundColor: c.surface },
+    content: { padding: 16, gap: 14, paddingBottom: 32 },
+    list: { gap: 12 },
     card: {
+      gap: 10,
+      padding: 16,
       borderRadius: 12,
       borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      padding: 12,
-      gap: 6,
+      borderColor: c.cardBorder,
+      backgroundColor: c.surfaceCard,
     },
-    cityTitleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-    cityIcon: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: isDark ? "#1f2b46" : "#fff0f1",
-    },
-    cardTitle: { fontSize: 15, fontWeight: "800", color: colors.ink },
-    cardMeta: { fontSize: 12, color: colors.inkSoft },
-    cardCaption: { fontSize: 13, color: colors.ink },
-    actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
-    chip: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: isDark ? "#1a2640" : "#f2f5fb",
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-    },
-    chipActive: { borderColor: colors.brand, backgroundColor: isDark ? "#3a2230" : "#ffe8ea" },
-    chipText: { fontSize: 11, fontWeight: "700", color: colors.inkSoft },
-    chipTextActive: { color: colors.brand },
-    fieldLabel: { fontSize: 12, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase" },
-    ccCityGroup: { gap: 8, marginTop: 4 },
-    ccCityHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-    ccCityTitle: { fontSize: 13, fontWeight: "800", color: colors.ink },
-    ccChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-    primaryBtn: {
-      borderRadius: 12,
-      backgroundColor: colors.brand,
-      alignItems: "center",
-      paddingVertical: 12,
-    },
-    primaryBtnText: { color: "#fff", fontWeight: "800" },
-    dangerBtn: {
-      alignSelf: "flex-start",
-      borderRadius: 8,
-      backgroundColor: "#ffe8ea",
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-    },
-    dangerBtnText: { color: colors.brand, fontWeight: "700", fontSize: 12 },
+    cardHead: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+    grow: { flex: 1 },
+    tags: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    badges: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    actions: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 10, borderTopWidth: 1 },
+    actionsEnd: { justifyContent: "flex-end" },
+    formActions: { flexDirection: "row", gap: 10 },
+    group: { gap: 8 },
+    groupHead: { flexDirection: "row", alignItems: "center", gap: 4 },
+    cityRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+    cityIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   });
 }

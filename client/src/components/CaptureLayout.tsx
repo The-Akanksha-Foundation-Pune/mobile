@@ -2,6 +2,7 @@ import { ComponentProps, ReactNode } from "react";
 import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CaptureHeader } from "./CaptureHeader";
+import { ContentFrame } from "./ContentFrame";
 import { CaptureTabBar, CaptureTab } from "./CaptureTabBar";
 import { captureLight } from "../theme/capture";
 
@@ -25,10 +26,12 @@ export function CaptureLayout({ header = null, tabs, children }: CaptureLayoutPr
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       {header ? (
         <SafeAreaView edges={["top"]} style={{ backgroundColor: c.surface }}>
-          <CaptureHeader {...header} />
+          <ContentFrame>
+            <CaptureHeader {...header} />
+          </ContentFrame>
         </SafeAreaView>
       ) : null}
-      <View style={{ flex: 1 }}>{children}</View>
+      <ContentFrame fill>{children}</ContentFrame>
       {tabs ? <CaptureTabBar tabs={tabs.items} activeId={tabs.activeId} onSelect={tabs.onSelect} /> : null}
     </View>
   );

@@ -45,6 +45,10 @@ export const captureLight = {
 
 export const captureLayout = {
   maxWidth: 390,
+  /** Widest the content column gets on tablets; the background still fills the screen. */
+  contentMaxWidth: 720,
+  /** Content at least this wide counts as a tablet layout. */
+  tabletMinWidth: 600,
   gutter: 16,
   gutterMobile: 12,
   headerHeight: 64,

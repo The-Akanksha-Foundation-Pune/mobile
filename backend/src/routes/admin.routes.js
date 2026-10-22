@@ -1,13 +1,13 @@
 const express = require("express");
 const { z } = require("zod");
-const { requireAuth, requireRole } = require("../middleware/auth");
+const { requireAuth, requirePermission } = require("../middleware/auth");
 const { resolveMediaUrlForClient } = require("../lib/resolveMediaUrl");
 const prisma = require("../lib/prisma");
+const { deriveEventStatus } = require("../lib/eventStatus");
 
 const router = express.Router();
 
 const eventModerationSchema = z.object({
-  eventStatus: z.enum(["upcoming", "ongoing", "complete"]).optional(),
   approvedForGallery: z.boolean().optional(),
   costCenterId: z.string().min(1).optional(),
   cityId: z.string().min(1).nullable().optional(),
@@ -18,12 +18,10 @@ const eventModerationSchema = z.object({
   typeId: z.string().min(1).optional(),
 });
 
-const REVIEW_STATUSES = ["pending", "approved", "changes_requested"];
+const REVIEW_STATUSES = ["pending", "approved"];
 
 const reviewSchema = z.object({
   status: z.enum(REVIEW_STATUSES),
-  reason: z.string().max(120).optional().nullable(),
-  note: z.string().max(2000).optional().nullable(),
 });
 
 const bulkReviewSchema = z.object({
@@ -36,17 +34,14 @@ const eventInclude = {
   uploadedBy: true,
   city: true,
   costCenter: { include: { city: true } },
-  parentEvent: { select: { id: true, title: true } },
+  parentEvent: { select: { id: true, title: true, eventDate: true, endDate: true } },
 };
 
-/** Fields written for any review decision. approvedForGallery stays in sync for older clients. */
-function reviewData({ status, reason, note }, reviewerId) {
-  const requestingChanges = status === "changes_requested";
+/** Fields written for a review decision. approvedForGallery stays in sync for older clients. */
+function reviewData({ status }, reviewerId) {
   return {
     reviewStatus: status,
     approvedForGallery: status === "approved",
-    reviewReason: requestingChanges ? reason?.trim() || null : null,
-    reviewNote: requestingChanges ? note?.trim() || null : null,
     reviewedById: reviewerId,
     reviewedAt: new Date(),
   };
@@ -61,7 +56,9 @@ function serializeEvent(item, req) {
     typeId: item.typeId,
     eventDate: item.eventDate.toISOString().slice(0, 10),
     location: item.location || "",
-    eventStatus: item.eventStatus,
+    // Posts and stories follow their event's dates; older ones have no endDate of their own.
+    eventStatus: deriveEventStatus(item.parentEvent || item),
+    endDate: item.endDate ? item.endDate.toISOString().slice(0, 10) : null,
     approvedForGallery: item.approvedForGallery,
     costCenterId: item.costCenterId,
     costCenterCode: item.costCenter?.code || "",
@@ -78,8 +75,6 @@ function serializeEvent(item, req) {
     eventTypeName: item.eventType?.name || "",
     uploadedByRole: item.uploadedBy?.role || "",
     reviewStatus: item.reviewStatus,
-    reviewReason: item.reviewReason || null,
-    reviewNote: item.reviewNote || null,
     reviewedAt: item.reviewedAt ? item.reviewedAt.toISOString() : null,
     kind: item.kind || "event",
     parentEventId: item.parentEventId || null,
@@ -88,7 +83,7 @@ function serializeEvent(item, req) {
   };
 }
 
-router.use(requireAuth, requireRole("admin"));
+router.use(requireAuth, requirePermission("approve_post"));
 
 router.get("/events", async (req, res) => {
   const events = await prisma.event.findMany({
@@ -133,7 +128,6 @@ router.patch("/events/:id", async (req, res) => {
   const updated = await prisma.event.update({
     where: { id: req.params.id },
     data: {
-      ...(parsed.data.eventStatus !== undefined ? { eventStatus: parsed.data.eventStatus } : {}),
       ...(parsed.data.approvedForGallery !== undefined
         ? {
             approvedForGallery: parsed.data.approvedForGallery,

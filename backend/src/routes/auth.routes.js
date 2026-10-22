@@ -4,6 +4,8 @@ const { z } = require("zod");
 const { requireAuth } = require("../middleware/auth");
 const prisma = require("../lib/prisma");
 const { verifyGoogleIdToken } = require("../services/googleAuth");
+const { findEmployeeCostCenter } = require("../services/employeeCostCenter");
+const { isBootstrapSuperAdmin, permissionsForRole } = require("../lib/permissions");
 
 const router = express.Router();
 
@@ -19,18 +21,55 @@ const profileUpdateSchema = z.object({
 
 const profileInclude = { city: true, costCenter: true };
 
+const costCenterFromAfdw = () => process.env.COSTCENTER_SOURCE === "employees";
+
+/**
+ * Links the user to their AFDW employee record and stores its employee_code. With
+ * COSTCENTER_SOURCE=employees, AFDW also decides the person's cost centre and city: the
+ * profile follows it and `costCenterLocked` tells the app to show them read-only.
+ */
+async function applyEmployeeCostCenter(user) {
+  try {
+    const employee = await findEmployeeCostCenter(user);
+    if (!employee) return { ...user, costCenterLocked: false };
+
+    const data = {};
+    if (employee.employeeCode && user.employeeCode !== employee.employeeCode) {
+      data.employeeCode = employee.employeeCode;
+    }
+    const center = costCenterFromAfdw() ? employee.center : null;
+    if (center && (user.costCenterId !== center.id || user.cityId !== center.cityId)) {
+      data.costCenterId = center.id;
+      data.cityId = center.cityId;
+    }
+    if (Object.keys(data).length) {
+      user = await prisma.user.update({ where: { id: user.id }, data, include: profileInclude });
+    }
+    return { ...user, costCenterLocked: Boolean(center) };
+  } catch (error) {
+    // P2002: another account already holds this employee code; leave this one unlinked.
+    console.error("AFDW employee lookup failed:", error.code || "", error.message);
+    return user;
+  }
+}
+
 function serializeUser(user) {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
+    employeeCode: user.employeeCode || "",
     role: user.role,
+    createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : null,
     cityId: user.cityId || null,
     cityName: user.city?.name || "",
     cityState: user.city?.state || "",
     costCenterId: user.costCenterId || null,
     costCenterCode: user.costCenter?.code || "",
     costCenterName: user.costCenter?.name || "",
+    costCenterPath: user.costCenter?.description || "",
+    costCenterLocked: Boolean(user.costCenterLocked),
+    permissions: permissionsForRole(user.role),
   };
 }
 
@@ -55,24 +94,28 @@ router.post("/google", async (req, res) => {
     }
 
     const name = payload.name || userEmail.split("@")[0];
-    const roleByEmailPrefix = userEmail.startsWith("admin@") ? "admin" : "volunteer";
+    const bootstrapSuperAdmin = isBootstrapSuperAdmin(userEmail);
 
-    const user = await prisma.user.upsert({
+    let user = await prisma.user.upsert({
       where: { googleSub: payload.sub },
       update: {
         email: userEmail,
         name,
         profileImage: payload.picture || null,
+        // Listed Super Admins are promoted on every login so the first one can always get in.
+        ...(bootstrapSuperAdmin ? { role: "super_admin" } : {}),
       },
       include: profileInclude,
       create: {
         googleSub: payload.sub,
         email: userEmail,
         name,
-        role: roleByEmailPrefix,
+        role: bootstrapSuperAdmin ? "super_admin" : "user",
         profileImage: payload.picture || null,
       },
     });
+
+    user = await applyEmployeeCostCenter(user);
 
     const token = jwt.sign(
       {
@@ -120,7 +163,7 @@ router.get("/me", requireAuth, async (req, res) => {
     where: { id: req.user.id },
     include: profileInclude,
   });
-  return res.json(serializeUser(user));
+  return res.json(serializeUser(await applyEmployeeCostCenter(user)));
 });
 
 router.patch("/me", requireAuth, async (req, res) => {
@@ -128,8 +171,17 @@ router.patch("/me", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid profile update." });
   }
-  const { name, cityId, costCenterId } = parsed.data;
+  let { name, cityId, costCenterId } = parsed.data;
   const data = {};
+
+  // Cost centre and city come from AFDW when the person is in it; only the name is theirs to edit.
+  if (costCenterFromAfdw() && (cityId !== undefined || costCenterId !== undefined)) {
+    const assigned = await findEmployeeCostCenter(req.user).catch(() => null);
+    if (assigned?.center) {
+      cityId = undefined;
+      costCenterId = undefined;
+    }
+  }
 
   if (name !== undefined) data.name = name;
 
@@ -165,7 +217,7 @@ router.patch("/me", requireAuth, async (req, res) => {
     data,
     include: profileInclude,
   });
-  return res.json(serializeUser(user));
+  return res.json(serializeUser(await applyEmployeeCostCenter(user)));
 });
 
 module.exports = router;

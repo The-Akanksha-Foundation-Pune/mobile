@@ -19,7 +19,9 @@
     "api:sync-ngrok": "node scripts/sync-ngrok-api-url.mjs",
     "ngrok:auth": "node scripts/ensure-ngrok-auth.mjs",
     "build:android": "npx --yes eas-cli build --platform android --profile preview",
-    "build:ios": "npx --yes eas-cli build --platform ios --profile preview"
+    "build:ios": "npx --yes eas-cli build --platform ios --profile preview",
+    "build:ios:device": "npx --yes eas-cli build --platform ios --profile preview-device",
+    "ios:register-device": "npx --yes eas-cli device:create"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",

@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const prisma = require("../lib/prisma");
+const { hasPermission } = require("../lib/permissions");
 
 async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -35,7 +36,18 @@ function requireRole(...roles) {
   };
 }
 
+/** Allows the request when the user holds any of the given permissions. */
+function requirePermission(...permissions) {
+  return (req, res, next) => {
+    if (!req.user || !permissions.some((permission) => hasPermission(req.user, permission))) {
+      return res.status(403).json({ message: "You don't have access to do this." });
+    }
+    return next();
+  };
+}
+
 module.exports = {
   requireAuth,
   requireRole,
+  requirePermission,
 };

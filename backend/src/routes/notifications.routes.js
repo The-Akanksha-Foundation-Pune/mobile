@@ -1,6 +1,6 @@
 const express = require("express");
 const { z } = require("zod");
-const { requireAuth, requireRole } = require("../middleware/auth");
+const { requireAuth, requirePermission } = require("../middleware/auth");
 const prisma = require("../lib/prisma");
 
 const router = express.Router();
@@ -13,7 +13,7 @@ const notifySchema = z.object({
 });
 
 /** Record donor notifications for a cost center (email delivery can be wired later). */
-router.post("/donors", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/donors", requireAuth, requirePermission("export_report"), async (req, res) => {
   const parsed = notifySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid notification payload." });
@@ -61,7 +61,7 @@ router.post("/donors", requireAuth, requireRole("admin"), async (req, res) => {
   });
 });
 
-router.get("/history", requireAuth, requireRole("admin"), async (req, res) => {
+router.get("/history", requireAuth, requirePermission("export_report"), async (req, res) => {
   const { costCenterId } = req.query;
   const history = await prisma.donorNotification.findMany({
     where: costCenterId ? { costCenterId: String(costCenterId) } : {},

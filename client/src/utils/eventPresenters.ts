@@ -14,8 +14,6 @@ export function reviewStatusPresentation(status: ReviewStatus): { label: string;
   switch (status) {
     case "approved":
       return { label: "Approved", tone: "success" };
-    case "changes_requested":
-      return { label: "Changes needed", tone: "danger" };
     default:
       return { label: "Pending review", tone: "warning" };
   }
@@ -35,9 +33,9 @@ export function formatEventDate(isoDate: string): string {
 export function eventStatusPresentation(status: EventStatus): { label: string; tone: StatusTone } {
   switch (status) {
     case "ongoing":
-      return { label: "Ongoing", tone: "info" };
+      return { label: "Live", tone: "info" };
     case "complete":
-      return { label: "Completed", tone: "success" };
+      return { label: "Ended", tone: "neutral" };
     default:
       return { label: "Upcoming", tone: "warning" };
   }

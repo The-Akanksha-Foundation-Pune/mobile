@@ -14,7 +14,9 @@ import {
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { captureFonts } from "../theme/capture";
+import * as WebBrowser from "expo-web-browser";
+import { PRIVACY_POLICY_URL } from "../config/constants";
+import { captureFonts, captureLayout } from "../theme/capture";
 
 type LoginScreenProps = {
   isLoading: boolean;
@@ -148,6 +150,15 @@ export function LoginScreen({ isLoading, canStartLogin, loginError, onLoginPress
               </View>
             ))}
           </View>
+
+          <Pressable
+            onPress={() => void WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL)}
+            accessibilityRole="link"
+            hitSlop={8}
+            style={styles.privacy}
+          >
+            <Text style={styles.privacyText}>Privacy Policy</Text>
+          </Pressable>
         </Animated.View>
       </ScrollView>
 
@@ -161,7 +172,7 @@ const styles = StyleSheet.create({
   glow: { position: "absolute", borderRadius: 999 },
   glowAmber: { width: 256, height: 256, top: -64, right: -64, backgroundColor: "rgba(254,243,199,0.5)" },
   glowRed: { width: 224, height: 224, top: 256, left: -64, backgroundColor: "rgba(254,226,226,0.35)" },
-  scroll: { flexGrow: 1, justifyContent: "space-between" },
+  scroll: { flexGrow: 1, justifyContent: "space-between", width: "100%", maxWidth: captureLayout.contentMaxWidth, alignSelf: "center" },
 
   header: { alignItems: "center", paddingHorizontal: 24, paddingBottom: 24 },
   logoCard: {
@@ -291,4 +302,7 @@ const styles = StyleSheet.create({
   featureIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   featureTitle: { fontFamily: captureFonts.headBold, fontSize: 13, lineHeight: 16, color: "#111827" },
   featureHint: { marginTop: 2, fontFamily: captureFonts.headSemi, fontSize: 10, color: ui.muted },
+
+  privacy: { marginTop: 18, alignSelf: "center" },
+  privacyText: { fontFamily: captureFonts.headSemi, fontSize: 12.5, color: ui.muted, textDecorationLine: "underline" },
 });

@@ -71,7 +71,11 @@ function updateEnvFile(path, updates) {
 try {
   const publicUrl = await fetchNgrokHttpsUrl();
   updateEnvFile(clientEnvPath, { EXPO_PUBLIC_API_BASE_URL: publicUrl });
-  updateEnvFile(backendEnvPath, { PUBLIC_API_BASE_URL: publicUrl });
+  updateEnvFile(backendEnvPath, {
+    PUBLIC_API_BASE_URL: publicUrl,
+    // Google Calendar connect on phones returns through the backend; register this URL on the web OAuth client.
+    GOOGLE_CALENDAR_REDIRECT_URI: `${publicUrl}/api/calendar/google/callback`,
+  });
 
   console.log(`
 ngrok API URL synced
@@ -80,11 +84,13 @@ ngrok API URL synced
 
 Updated:
   client/.env  → EXPO_PUBLIC_API_BASE_URL
-  backend/.env → PUBLIC_API_BASE_URL
+  backend/.env → PUBLIC_API_BASE_URL, GOOGLE_CALENDAR_REDIRECT_URI
 
 Next:
   1. Restart backend if it was already running (pick up PUBLIC_API_BASE_URL)
   2. On any phone, open ${publicUrl}/health
+  2b. For Google Calendar connect on phones, add this redirect URI to the web OAuth client:
+       ${publicUrl}/api/calendar/google/callback
   3. Rebuild the app (env is baked in at build time):
        cd client && npm run build:android
      Or local dev install:

@@ -23,7 +23,7 @@ captureAkanksha/
 │   │   │   └── auth.js       # JWT auth + role checks (admin)
 │   │   ├── routes/
 │   │   │   ├── auth.routes.js
-│   │   │   ├── ai.routes.js        # POST /polish-description → Gemini (GOOGLE_AI_API_KEY)
+│   │   │   ├── ai.routes.js        # POST /polish-description → Gemini (GOOGLE_AI_API_KEY); N polishes per draft (AiPolishUsage, admin limit)
 │   │   │   ├── events.routes.js    # CRUD + filters (city, status, gallery)
 │   │   │   ├── types.routes.js
 │   │   │   ├── cities.routes.js        # City list + admin CRUD
@@ -44,7 +44,6 @@ captureAkanksha/
 │   │       ├── seedDummyData.js       # Preview dataset → LocalDB (CC, donors, events, calendar)
 │   │       ├── backfillEventCityIds.js  # Set event.cityId from cost center when null
 │   │       ├── dbDumpLocal.js         # mysqldump LocalDB → backend/dumps/
-│   │       ├── dbImportToRailway.js   # Import latest dump into Railway MySQL
 │   │       └── backfillMediaUrls.js   # Normalize event.mediaUrl to /media/... paths
 │   ├── uploads/
 │   ├── package.json
