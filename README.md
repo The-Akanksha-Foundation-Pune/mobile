@@ -60,8 +60,8 @@ Backend runs on `http://localhost:4000`.
 - `JWT_SECRET`
 - `GOOGLE_CLIENT_ID` (Google OAuth Web Client ID used for token verification)
 - `ALLOWED_EMAIL_DOMAIN` (default `akanksha.org`)
-- `GOOGLE_AI_API_KEY` (Google AI Studio key for Gemini — powers **Polish** on event descriptions in Add Event)
-- `GOOGLE_AI_MODEL` (optional, e.g. `gemini-2.5-flash`; defaults to `gemini-2.5-flash` then `gemini-2.5-pro`)
+- `GOOGLE_AI_API_KEY` (Google AI Studio key for Gemini — powers **Polish with AI** on post, story and event descriptions. The button is currently hidden in the app by `AI_POLISH_ENABLED = false` in `client/src/config/constants.ts`; set it to `true` to show it again. Each description gets a limited number of polishes, 2 by default; Super Admins change it under Admin console → Limits → AI polish)
+- `GOOGLE_AI_MODEL` (optional, tried first; the built-in order is `gemini-3.1-pro-preview`, then `gemini-3.8-flash`, then `gemini-3.5-flash-lite`. Retired or tier-blocked models are skipped automatically. The AI Studio project needs prepaid credit; when it runs out, Polish falls back to a local tidy-up and tells the user)
 - `GOOGLE_DRIVE_FOLDER_ID`
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL`
 - `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`

@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useColorScheme } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { AppButton, SelectChip } from "../components";
-import { polishEventDescription } from "../services/api";
-import type { City, CostCenter, EventType, MediaMode, SelectedMedia } from "../types/app";
-import { darkPalette, palette } from "../theme/theme";
+import { CaptureHeader } from "../components";
+import { BottomSheet, CaptureButton, CaptureInput, OptionRow, popupAlert } from "../components/capture";
+import { fetchSettings, polishEventDescription, PolishLimitError } from "../services/api";
+import { AI_POLISH_ENABLED } from "../config/constants";
+import type { City, ContentKind, CostCenter, EventItem, MediaMode, SelectedMedia } from "../types/app";
+import { useCaptureTheme, type CaptureColors } from "../theme/useCaptureTheme";
+import { formatEventDate } from "../utils/eventPresenters";
 
 type AddEventScreenProps = {
   token: string;
   city: City;
-  costCenter: CostCenter;
-  eventTypes: EventType[];
-  selectedTypeId: string;
+  costCenter: CostCenter | null;
   eventTitle: string;
   caption: string;
   eventDate: string;
@@ -21,22 +22,35 @@ type AddEventScreenProps = {
   isLoading: boolean;
   onClose: () => void;
   onSelectMediaType: (next: MediaMode) => void;
-  onSelectType: (typeId: string) => void;
   onChangeEventDate: (next: string) => void;
   onChangeEventTitle: (next: string) => void;
   onChangeCaption: (next: string) => void;
   onChangeLocation: (next: string) => void;
-  onCaptureMedia: () => void;
-  onSaveEvent: () => void | Promise<void>;
+  onCaptureMedia: () => Promise<boolean>;
+  onPickMedia?: () => Promise<boolean>;
+  /** Receives the event the post or story belongs to (null when creating an event). */
+  onSaveEvent: (parentEvent: EventItem | null) => void | Promise<void>;
+  mode?: ContentKind;
+  parentEvent?: EventItem | null;
+  /** Events that currently accept posts and stories. */
+  events?: EventItem[];
+  body?: string;
+  onChangeBody?: (next: string) => void;
+  endDate?: string;
+  onChangeEndDate?: (next: string) => void;
 };
 
+/** Mints an id for one open form so the server can count AI polishes against this draft only. */
+function newDraftId() {
+  return `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Capture details screen: media on top, then the few fields each kind needs. */
 export function AddEventScreen(props: AddEventScreenProps) {
   const {
     token,
     city,
     costCenter,
-    eventTypes,
-    selectedTypeId,
     eventTitle,
     caption,
     eventDate,
@@ -45,26 +59,58 @@ export function AddEventScreen(props: AddEventScreenProps) {
     isLoading,
     onClose,
     onSelectMediaType,
-    onSelectType,
     onChangeEventDate,
     onChangeEventTitle,
     onChangeCaption,
     onChangeLocation,
     onCaptureMedia,
+    onPickMedia,
     onSaveEvent,
+    mode = "event",
+    parentEvent = null,
+    events = [],
+    body = "",
+    onChangeBody,
+    endDate = "",
+    onChangeEndDate,
   } = props;
-
+  const { c, type } = useCaptureTheme();
+  const styles = useMemo(() => getStyles(c), [c]);
   const [location, setLocation] = useState("");
+  const [parent, setParent] = useState<EventItem | null>(parentEvent);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [isPolishing, setIsPolishing] = useState(false);
   const [polishCooldownUntil, setPolishCooldownUntil] = useState(0);
-  const isDark = useColorScheme() === "dark";
-  const styles = useMemo(() => getStyles(isDark), [isDark]);
-  const colors = isDark ? darkPalette : palette;
+  // The screen unmounts when closed, so a fresh draft id (and allowance) comes with each new form.
+  const [draftId] = useState(newDraftId);
+  /** Polishes left for this draft; null until the limit has loaded. */
+  const [polishRemaining, setPolishRemaining] = useState<number | null>(null);
+  const [polishLimit, setPolishLimit] = useState<number | null>(null);
   const isPolishCooldownActive = Date.now() < polishCooldownUntil;
+  const isPolishExhausted = polishRemaining !== null && polishRemaining <= 0;
+  const isEvent = mode === "event";
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSettings(token)
+      .then(({ limits }) => {
+        if (cancelled) return;
+        setPolishLimit(limits.polish);
+        setPolishRemaining(limits.polish);
+      })
+      .catch(() => undefined); // The server still enforces the limit; the button just shows no count.
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   useEffect(() => {
     onChangeLocation(location);
   }, [location, onChangeLocation]);
+
+  useEffect(() => {
+    setParent(parentEvent);
+  }, [parentEvent]);
 
   useEffect(() => {
     if (!polishCooldownUntil) return;
@@ -77,201 +123,249 @@ export function AddEventScreen(props: AddEventScreenProps) {
     return () => clearTimeout(timeout);
   }, [polishCooldownUntil]);
 
-  const selectedEventTypeName = eventTypes.find((type) => type.id === selectedTypeId)?.name;
+  const headerTitle = mode === "post" ? "New post" : mode === "story" ? "New story" : "New event";
+  const submitLabel = isLoading ? "Uploading..." : mode === "post" ? "Share post" : mode === "story" ? "Publish story" : "Create event";
+  const captionLabel = isEvent ? "Description" : mode === "story" ? "Short excerpt" : "Caption";
+  const polishLabel = isPolishing
+    ? "Polishing..."
+    : isPolishExhausted
+      ? "No polishes left"
+      : polishRemaining !== null
+        ? `Polish with AI · ${polishRemaining} left`
+        : "Polish with AI";
+  const polishDisabled = isPolishing || !caption.trim() || isPolishCooldownActive || isPolishExhausted;
 
   async function handlePolishDescription() {
     if (isPolishCooldownActive) {
       const waitSeconds = Math.max(1, Math.ceil((polishCooldownUntil - Date.now()) / 1000));
-      Alert.alert("Please wait", `Try polishing again in ${waitSeconds}s.`);
+      popupAlert("Please wait", `Try polishing again in ${waitSeconds}s.`);
+      return;
+    }
+    if (isPolishExhausted) {
+      popupAlert("No polishes left", `You can polish each ${mode} ${polishLimit ?? 0} ${polishLimit === 1 ? "time" : "times"}. Edit the text yourself to finish it.`);
       return;
     }
     try {
       setIsPolishing(true);
-      const polished = await polishEventDescription({
+      const result = await polishEventDescription({
         token,
         description: caption,
+        draftId,
+        kind: mode,
         context: {
-          title: eventTitle.trim() || undefined,
+          title: (eventTitle || parent?.title || "").trim() || undefined,
           cityName: city.name,
-          costCenterName: costCenter.name,
-          costCenterCode: costCenter.code,
-          eventTypeName: selectedEventTypeName,
-          location: location.trim() || undefined,
-          eventDate: eventDate || undefined,
+          costCenterName: costCenter?.name,
+          costCenterCode: costCenter?.code,
+          location: location.trim() || parent?.location || undefined,
+          eventDate: eventDate || parent?.eventDate || undefined,
         },
       });
-      onChangeCaption(polished);
+      onChangeCaption(result.polished);
+      if (result.remaining !== null) setPolishRemaining(result.remaining);
+      if (result.limit > 0) setPolishLimit(result.limit);
+      if (result.fallback) popupAlert("Tidied without AI", result.message || "Google AI is unavailable right now, so the text was only tidied up.");
     } catch (error) {
-      const message = (error as Error).message;
-      if (message.toLowerCase().includes("rate limit")) {
-        setPolishCooldownUntil(Date.now() + 20_000);
+      if (error instanceof PolishLimitError) {
+        setPolishRemaining(0);
+        setPolishLimit(error.limit);
+        popupAlert("No polishes left", error.message);
+        return;
       }
-      Alert.alert("Polish failed", message);
+      const message = (error as Error).message;
+      if (message.toLowerCase().includes("rate limit")) setPolishCooldownUntil(Date.now() + 20_000);
+      popupAlert("Polish failed", message);
     } finally {
       setIsPolishing(false);
     }
   }
 
+  function handleSubmit() {
+    if (!isEvent && !parent) {
+      popupAlert("Choose an event", `Pick the event this ${mode} belongs to.`);
+      setPickerOpen(true);
+      return;
+    }
+    void onSaveEvent(isEvent ? null : parent);
+  }
+
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Pressable onPress={onClose}>
-          <Ionicons name="arrow-back" size={22} color={colors.ink} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Add event • {costCenter.code}</Text>
-        <View style={{ width: 22 }} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.ccHint}>
-          {city.name} • {costCenter.name} ({costCenter.code}) — event type required below
-        </Text>
-        <TextInput
-          style={styles.titleInput}
-          placeholder="Event title"
-          placeholderTextColor={colors.inkSoft}
-          value={eventTitle}
-          onChangeText={onChangeEventTitle}
-        />
-
-        <View style={styles.descriptionCard}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.label}>Description</Text>
-            <Pressable
-              style={[styles.polishBtn, (isPolishing || !caption.trim() || isPolishCooldownActive) && styles.disabled]}
-              onPress={() => void handlePolishDescription()}
-              disabled={isPolishing || !caption.trim() || isPolishCooldownActive}
-            >
-              <Ionicons name="sparkles-outline" size={14} color={palette.accent} />
-              <Text style={styles.polishText}>{isPolishing ? "Polishing..." : "Polish"}</Text>
-            </Pressable>
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <CaptureHeader title={headerTitle} subtitle={parent ? parent.title || "Untitled event" : city.name} onBack={onClose} right={null} />
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        {media ? (
+          <View style={styles.preview}>
+            {mediaType === "photo" ? (
+              <Image resizeMethod="resize" source={{ uri: media.uri }} style={styles.previewImage} resizeMode="cover" />
+            ) : (
+              <View style={[styles.previewImage, styles.videoBox]}>
+                <MaterialCommunityIcons name="play-circle-outline" size={48} color="#fff" />
+                <Text style={[type.labelMd, styles.videoText]} numberOfLines={1}>
+                  {media.fileName || "Video selected"}
+                </Text>
+              </View>
+            )}
+            <View style={styles.previewActions}>
+              <Pressable onPress={() => void onCaptureMedia()} style={styles.previewBtn} accessibilityRole="button" accessibilityLabel="Retake">
+                <MaterialCommunityIcons name="camera-retake-outline" size={16} color="#fff" />
+                <Text style={[type.labelSm, styles.previewBtnText]}>Retake</Text>
+              </Pressable>
+              {onPickMedia ? (
+                <Pressable onPress={() => void onPickMedia()} style={styles.previewBtn} accessibilityRole="button" accessibilityLabel="Choose from gallery">
+                  <MaterialCommunityIcons name="image-multiple-outline" size={16} color="#fff" />
+                  <Text style={[type.labelSm, styles.previewBtnText]}>Gallery</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
-          <TextInput
-            style={styles.descriptionInput}
-            placeholder="Describe the event"
-            placeholderTextColor={colors.inkSoft}
+        ) : (
+          <View style={[styles.captureBox, { borderColor: c.chipBorder, backgroundColor: c.surfaceCard }]}>
+            <View style={styles.modeRow}>
+              {(["photo", "video"] as MediaMode[]).map((option) => {
+                const active = mediaType === option;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => onSelectMediaType(option)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    style={[styles.modePill, { backgroundColor: active ? c.neutral : c.surfaceContainerLow }]}
+                  >
+                    <MaterialCommunityIcons name={option === "photo" ? "camera-outline" : "video-outline"} size={16} color={active ? "#fff" : c.onSurfaceVariant} />
+                    <Text style={[type.labelMd, { color: active ? "#fff" : c.onSurface }]}>{option === "photo" ? "Photo" : "Video"}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <CaptureButton label={mediaType === "photo" ? "Take a photo" : "Record a video"} icon="camera-outline" onPress={() => void onCaptureMedia()} />
+            {onPickMedia ? <CaptureButton label="Choose from gallery" variant="secondary" icon="image-multiple-outline" onPress={() => void onPickMedia()} /> : null}
+          </View>
+        )}
+
+        {!isEvent ? (
+          <Pressable
+            onPress={() => setPickerOpen(true)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.eventRow, { backgroundColor: pressed ? c.surfaceContainer : c.surfaceContainerLow }]}
+          >
+            <View style={[styles.eventIcon, { backgroundColor: c.surfaceContainerHigh }]}>
+              <MaterialCommunityIcons name="calendar-month" size={18} color={c.primary} />
+            </View>
+            <View style={styles.grow}>
+              <Text style={[type.labelSm, { color: c.onSurfaceVariant, letterSpacing: 0.5 }]}>EVENT</Text>
+              <Text style={[type.labelLg, { color: parent ? c.onSurface : c.onSurfaceVariant }]} numberOfLines={1}>
+                {parent ? parent.title || "Untitled event" : "Choose an event"}
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={20} color={c.onSurfaceVariant} />
+          </Pressable>
+        ) : null}
+
+        {mode !== "post" ? (
+          <CaptureInput
+            label={isEvent ? "Event title" : "Story title"}
+            value={eventTitle}
+            onChangeText={onChangeEventTitle}
+            placeholder={isEvent ? "e.g. Annual Science Fair 2026" : "e.g. Priya's leap to the Math Olympiad"}
+          />
+        ) : null}
+
+        <View style={styles.field}>
+          <View style={styles.labelRow}>
+            <Text style={[type.labelMd, { color: c.onSurfaceVariant }]}>{captionLabel}</Text>
+            {AI_POLISH_ENABLED ? (
+              <Pressable
+                onPress={() => void handlePolishDescription()}
+                disabled={polishDisabled}
+                accessibilityRole="button"
+                accessibilityLabel={polishLabel}
+                style={[styles.polishBtn, { backgroundColor: c.surfaceContainerLow, opacity: polishDisabled ? 0.5 : 1 }]}
+              >
+                <MaterialCommunityIcons name="creation" size={14} color={c.secondary} />
+                <Text style={[type.labelSm, { color: c.secondary }]}>{polishLabel}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <CaptureInput
+            multiline
             value={caption}
             onChangeText={onChangeCaption}
-            multiline
+            placeholder={isEvent ? "What is this event about?" : mode === "story" ? "One or two lines that introduce the story" : "Write a caption..."}
           />
         </View>
 
-        <View style={styles.row}>
-          <SelectChip label="Photo" iconName="camera-outline" isActive={mediaType === "photo"} onPress={() => onSelectMediaType("photo")} />
-          <SelectChip label="Video" iconName="videocam-outline" isActive={mediaType === "video"} onPress={() => onSelectMediaType("video")} />
-        </View>
+        {mode === "story" ? (
+          <CaptureInput label="Story" multiline value={body} onChangeText={onChangeBody} placeholder="Tell the full story. Blank lines start new paragraphs." style={styles.storyInput} />
+        ) : null}
 
-        <Pressable style={styles.captureBox} onPress={onCaptureMedia}>
-          <Text style={styles.captureText}>
-            {media ? `Selected: ${media.fileName || "Captured media"}` : "Tap to capture photo or video"}
-          </Text>
-        </Pressable>
+        {isEvent ? (
+          <>
+            <View style={styles.dateRow}>
+              <View style={styles.grow}>
+                <CaptureInput label="Start date" value={eventDate} onChangeText={onChangeEventDate} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              </View>
+              <View style={styles.grow}>
+                <CaptureInput label="End date (optional)" value={endDate} onChangeText={onChangeEndDate} placeholder="YYYY-MM-DD" autoCapitalize="none" />
+              </View>
+            </View>
+            <Text style={[type.bodySm, { color: c.onSurfaceVariant }]}>Posts and stories can be added only between these dates.</Text>
+            <CaptureInput label="Location" value={location} onChangeText={setLocation} placeholder="Venue or centre" />
+            <Text style={[type.bodySm, { color: c.onSurfaceVariant }]}>
+              {costCenter ? `${city.name} • ${costCenter.name} (${costCenter.code})` : city.name}
+            </Text>
+          </>
+        ) : null}
 
-        <TextInput
-          style={styles.field}
-          value={eventDate}
-          onChangeText={onChangeEventDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={colors.inkSoft}
-        />
-        <TextInput
-          style={styles.field}
-          value={location}
-          onChangeText={setLocation}
-          placeholder="Venue / location"
-          placeholderTextColor={colors.inkSoft}
-        />
-
-        <Text style={styles.label}>Event type</Text>
-        <FlatList
-          horizontal
-          data={eventTypes}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <SelectChip label={item.name} isActive={selectedTypeId === item.id} onPress={() => onSelectType(item.id)} />
-          )}
-          contentContainerStyle={styles.typeList}
-        />
-
-        <AppButton label={isLoading ? "Uploading..." : "Submit event"} onPress={onSaveEvent} />
+        <CaptureButton label={submitLabel} icon={isEvent ? "calendar-plus" : "send"} onPress={handleSubmit} loading={isLoading} />
       </ScrollView>
+
+      <BottomSheet visible={pickerOpen} onClose={() => setPickerOpen(false)} title="Choose an event">
+        <View style={styles.sheet}>
+          {events.length === 0 ? (
+            <Text style={[type.bodySm, styles.sheetEmpty, { color: c.onSurfaceVariant }]}>No events are open for posts yet.</Text>
+          ) : (
+            events.map((event) => (
+              <OptionRow
+                key={event.id}
+                icon={parent?.id === event.id ? "check-circle" : "calendar-month"}
+                label={event.title || "Untitled event"}
+                description={`${formatEventDate(event.eventDate)}${event.cityName ? ` • ${event.cityName}` : ""}`}
+                onPress={() => {
+                  setParent(event);
+                  setPickerOpen(false);
+                }}
+              />
+            ))
+          )}
+        </View>
+      </BottomSheet>
     </SafeAreaView>
   );
 }
 
-function getStyles(isDark: boolean) {
-  const colors = isDark ? darkPalette : palette;
+function getStyles(c: CaptureColors) {
   return StyleSheet.create({
-    safe: { flex: 1, backgroundColor: isDark ? "#0d1322" : "#f4f6fa" },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-      backgroundColor: colors.surface,
-    },
-    headerTitle: { fontSize: 15, fontWeight: "800", color: colors.ink },
-    content: { padding: 16, gap: 12, paddingBottom: 30 },
-    ccHint: { fontSize: 12, color: colors.inkSoft, fontWeight: "600" },
-    titleInput: {
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      padding: 14,
-      fontSize: 18,
-      fontWeight: "800",
-      color: colors.ink,
-    },
-    descriptionCard: {
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      padding: 12,
-      gap: 8,
-    },
-    rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-    label: { fontSize: 13, fontWeight: "700", color: colors.inkSoft },
-    polishBtn: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: "#7a6323",
-      backgroundColor: "#3d3220",
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-    },
-    polishText: { color: palette.accent, fontWeight: "700", fontSize: 12 },
-    disabled: { opacity: 0.6 },
-    descriptionInput: { minHeight: 100, fontSize: 15, color: colors.ink, textAlignVertical: "top" },
-    row: { flexDirection: "row", gap: 8 },
-    captureBox: {
-      borderRadius: 14,
-      borderWidth: 2,
-      borderStyle: "dashed",
-      borderColor: colors.border,
-      minHeight: 72,
-      alignItems: "center",
-      justifyContent: "center",
-      padding: 12,
-      backgroundColor: colors.surface,
-    },
-    captureText: { color: colors.inkSoft, fontWeight: "600" },
-    field: {
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      padding: 12,
-      fontSize: 15,
-      color: colors.ink,
-    },
-    typeList: { gap: 8, paddingVertical: 4 },
+    safe: { flex: 1, backgroundColor: c.surface },
+    content: { padding: 16, gap: 14, paddingBottom: 32 },
+    grow: { flex: 1 },
+    preview: { borderRadius: 16, overflow: "hidden", backgroundColor: c.surfaceContainer },
+    previewImage: { width: "100%", aspectRatio: 4 / 5 },
+    videoBox: { backgroundColor: "#0B0F19", alignItems: "center", justifyContent: "center", gap: 8 },
+    videoText: { color: "#dbe2f9" },
+    previewActions: { position: "absolute", right: 10, bottom: 10, flexDirection: "row", gap: 8 },
+    previewBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, minHeight: 34, borderRadius: 999, backgroundColor: "rgba(11,15,25,0.72)" },
+    previewBtnText: { color: "#fff" },
+    captureBox: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
+    modeRow: { flexDirection: "row", gap: 8 },
+    modePill: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, minHeight: 36, borderRadius: 999 },
+    eventRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12 },
+    eventIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+    field: { gap: 6 },
+    dateRow: { flexDirection: "row", gap: 10 },
+    labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    polishBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, minHeight: 28, borderRadius: 999 },
+    storyInput: { minHeight: 180 },
+    sheet: { gap: 8, paddingBottom: 8 },
+    sheetEmpty: { textAlign: "center", paddingVertical: 24 },
   });
 }

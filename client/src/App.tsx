@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform } from "react-native";
+import { ActivityIndicator, AppState, Image, Platform, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { makeRedirectUri } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
@@ -11,10 +11,22 @@ import {
   GOOGLE_IOS_CLIENT_ID,
   GOOGLE_WEB_CLIENT_ID,
 } from "./config/constants";
+import { configureGoogleSignin } from "./services/googleSignin";
 import { useAppRoute } from "./hooks/useAppRoute";
 import { HomeScreen } from "./screens/HomeScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
+import { Appearance } from "react-native";
+import { useFonts } from "expo-font";
+import { CardPreview } from "./dev/CardPreview";
+import { CalendarEventsPreview, ProfilePreview } from "./dev/ProfilePreview";
+import { Inter_400Regular, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
+import {
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+  PlusJakartaSans_800ExtraBold,
+} from "@expo-google-fonts/plus-jakarta-sans";
+import { ListLoader, popupAlert } from "./components/capture";
 import { citiesWithCostCenters } from "./config/cities";
 import {
   fetchCities,
@@ -25,7 +37,7 @@ import {
   uploadEvent,
 } from "./services/api";
 import { getDummyCostCenters, USE_DUMMY_HUB_DATA } from "./data/dummyHubData";
-import type { City, CostCenter, EventItem, EventType, MediaMode, SelectedMedia, User } from "./types/app";
+import type { City, ContentKind, CostCenter, EventItem, MediaMode, SelectedMedia, User } from "./types/app";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -71,20 +83,35 @@ function clearWebOAuthHash(): void {
 }
 
 export default function App() {
+  useEffect(() => {
+    // The app is light-only; pin the scheme so older screens never pick up the phone's dark mode.
+    if (typeof Appearance.setColorScheme === "function") {
+      Appearance.setColorScheme("light");
+    }
+  }, []);
+  const [fontsLoaded, fontError] = useFonts({
+    Inter_400Regular,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
+  });
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [isAuthBootstrapped, setIsAuthBootstrapped] = useState(false);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const { route, setRoute } = useAppRoute();
 
   const [cities, setCities] = useState<City[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
-  const [eventTypes, setEventTypes] = useState<EventType[]>([]);
-  const [selectedTypeId, setSelectedTypeId] = useState("");
   const [eventTitle, setEventTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [eventDate, setEventDate] = useState(new Date().toISOString().slice(0, 10));
   const [eventLocation, setEventLocation] = useState("");
+  const [body, setBody] = useState("");
+  const [eventEndDate, setEventEndDate] = useState("");
   const [mediaType, setMediaType] = useState<MediaMode>("photo");
   const [media, setMedia] = useState<SelectedMedia>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -110,12 +137,7 @@ export default function App() {
 
   useEffect(() => {
     if (Platform.OS === "web") return;
-    GoogleSignin.configure({
-      webClientId: GOOGLE_WEB_CLIENT_ID,
-      iosClientId: GOOGLE_IOS_CLIENT_ID,
-      // Keeps Android native flow compatible with backend audience checks.
-      offlineAccess: false,
-    });
+    configureGoogleSignin();
   }, []);
 
   useEffect(() => {
@@ -182,14 +204,14 @@ export default function App() {
         response.error?.description || response.error?.message || "Google auth request failed.";
       setLoginError(errorDescription);
       if (Platform.OS !== "web") {
-        Alert.alert("Google sign-in error", errorDescription);
+        popupAlert("Google sign-in error", errorDescription);
       }
     }
     if (response?.type === "dismiss" || response?.type === "cancel") {
       if (Platform.OS === "web") clearWebOAuthHash();
       setLoginError("Google sign-in cancelled. Please try again.");
       if (Platform.OS !== "web") {
-        Alert.alert("Google sign-in cancelled", "Please try again to continue.");
+        popupAlert("Google sign-in cancelled", "Please try again to continue.");
       }
     }
   }, [response, webRedirectUri]);
@@ -210,6 +232,21 @@ export default function App() {
     void hydrateAuthenticatedSession();
   }, [token]);
 
+  // Phones keep the app alive in the background for hours, so re-read the profile whenever
+  // it comes back to the foreground: AFDW may have changed the person's cost centre or city.
+  useEffect(() => {
+    if (!token) return;
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next !== "active") return;
+      fetchCurrentUser(token)
+        .then(setUser)
+        .catch(() => {
+          // Offline or a brief server error: keep the profile already on screen.
+        });
+    });
+    return () => sub.remove();
+  }, [token]);
+
   async function handleGoogleLogin(idToken: string) {
     try {
       setIsLoading(true);
@@ -221,7 +258,7 @@ export default function App() {
       const message = (error as Error).message;
       setLoginError(message);
       if (Platform.OS !== "web") {
-        Alert.alert("Login error", message);
+        popupAlert("Login error", message);
       }
     } finally {
       setIsLoading(false);
@@ -239,7 +276,7 @@ export default function App() {
       }
       const signInResult = await GoogleSignin.signIn();
       if (signInResult.type !== "success") {
-        Alert.alert("Google sign-in cancelled", "Please try again to continue.");
+        popupAlert("Google sign-in cancelled", "Please try again to continue.");
         return;
       }
       let idToken = signInResult.data.idToken;
@@ -256,27 +293,27 @@ export default function App() {
     } catch (error) {
       if (isErrorWithCode(error)) {
         if (error.code === statusCodes.SIGN_IN_CANCELLED) {
-          Alert.alert("Google sign-in cancelled", "Please try again to continue.");
+          popupAlert("Google sign-in cancelled", "Please try again to continue.");
           return;
         }
         if (error.code === statusCodes.IN_PROGRESS) {
-          Alert.alert("Google sign-in", "A sign-in request is already in progress.");
+          popupAlert("Google sign-in", "A sign-in request is already in progress.");
           return;
         }
         if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-          Alert.alert("Google Play Services", "Google Play Services is missing or outdated on this device.");
+          popupAlert("Google Play Services", "Google Play Services is missing or outdated on this device.");
           return;
         }
       }
       const message = (error as Error).message || "Sign-in failed.";
       if (message.includes("DEVELOPER_ERROR")) {
-        Alert.alert(
+        popupAlert(
           "Google sign-in setup",
           "Android OAuth is misconfigured. In Google Cloud Console, open the Android OAuth client for package org.akanksha.capture and add your app SHA-1 fingerprints (run npm run google:setup in client/ for exact values). Then rebuild and reinstall the app."
         );
         return;
       }
-      Alert.alert("Google sign-in error", message);
+      popupAlert("Google sign-in error", message);
     }
   }
 
@@ -300,26 +337,28 @@ export default function App() {
   }
 
   async function loadSessionData() {
-    const bootstrap = await fetchEventBootstrap(token);
-    const centerList = USE_DUMMY_HUB_DATA ? getDummyCostCenters() : await fetchCostCenters(token);
-    const cityList = USE_DUMMY_HUB_DATA ? [] : await fetchCities(token);
-    setEventTypes(bootstrap.eventTypes);
-    setEvents(bootstrap.events);
-    setCostCenters(centerList);
-    setCities(
-      USE_DUMMY_HUB_DATA
-        ? citiesWithCostCenters(
-            [
-              { id: "dummy-city-mum", name: "Mumbai", sortOrder: 1, isActive: true },
-              { id: "dummy-city-pune", name: "Pune", sortOrder: 2, isActive: true },
-              { id: "dummy-city-ngp", name: "Nagpur", sortOrder: 3, isActive: true },
-            ],
-            centerList
-          )
-        : citiesWithCostCenters(cityList, centerList)
-    );
-    if (!selectedTypeId && bootstrap.eventTypes.length > 0) {
-      setSelectedTypeId(bootstrap.eventTypes[0].id);
+    setSessionLoading(true);
+    try {
+      const bootstrap = await fetchEventBootstrap(token);
+      const centerList = USE_DUMMY_HUB_DATA ? getDummyCostCenters() : await fetchCostCenters(token);
+      const cityList = USE_DUMMY_HUB_DATA ? [] : await fetchCities(token);
+      setEvents(bootstrap.events);
+      setCostCenters(centerList);
+      setCities(
+        USE_DUMMY_HUB_DATA
+          ? citiesWithCostCenters(
+              [
+                { id: "dummy-city-mum", name: "Mumbai", sortOrder: 1, isActive: true },
+                { id: "dummy-city-pune", name: "Pune", sortOrder: 2, isActive: true },
+                { id: "dummy-city-ngp", name: "Nagpur", sortOrder: 3, isActive: true },
+              ],
+              centerList
+            )
+          : citiesWithCostCenters(cityList, centerList)
+      );
+    
+    } finally {
+      setSessionLoading(false);
     }
   }
 
@@ -333,16 +372,17 @@ export default function App() {
       if (Platform.OS === "web") {
         setLoginError("Session expired. Please sign in again.");
       } else {
-        Alert.alert("Session expired", "Please sign in again.");
+        popupAlert("Session expired", "Please sign in again.");
       }
     }
   }
 
-  async function handleCaptureFromCamera() {
+  /** Opens the camera; resolves true when a photo or video was taken. */
+  async function handleCaptureFromCamera(): Promise<boolean> {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission needed", "Camera permission is required.");
-      return;
+      popupAlert("Permission needed", "Camera permission is required.");
+      return false;
     }
 
     const result = await ImagePicker.launchCameraAsync({
@@ -353,12 +393,63 @@ export default function App() {
 
     if (!result.canceled && result.assets[0]) {
       setMedia(result.assets[0]);
+      return true;
     }
+    return false;
   }
 
-  async function handleSubmitEvent(costCenterId: string, cityId?: string | null): Promise<boolean> {
-    if (!selectedTypeId || !eventTitle.trim() || !caption.trim() || !eventDate || !media) {
-      Alert.alert("Missing fields", "Title, type, date, caption and media are required.");
+  /** Picks from the photo library; resolves true when something was chosen. */
+  async function handlePickFromLibrary(): Promise<boolean> {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: mediaType === "photo" ? ["images"] : ["videos"],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setMedia(result.assets[0]);
+      return true;
+    }
+    return false;
+  }
+
+  /** Clears the capture form so the next post, story or event starts empty. */
+  function resetDraft() {
+    setEventTitle("");
+    setCaption("");
+    setBody("");
+    setEventDate(new Date().toISOString().slice(0, 10));
+    setEventEndDate("");
+    setEventLocation("");
+    setMediaType("photo");
+    setMedia(null);
+  }
+
+  async function handleSubmitEvent(
+    costCenterId: string | null,
+    cityId?: string | null,
+    options: { kind?: ContentKind; parentEventId?: string; body?: string } = {}
+  ): Promise<boolean> {
+    const kind = options.kind ?? "event";
+    const hasParent = Boolean(options.parentEventId);
+    const excerpt = caption.trim() || (kind === "story" ? (options.body || "").trim().slice(0, 200) : "");
+
+    if (!media) {
+      popupAlert("Missing media", "Add a photo or video first.");
+      return false;
+    }
+    if (kind === "event" && (!eventTitle.trim() || !eventDate || !excerpt)) {
+      popupAlert("Missing fields", "Title, date, description and media are required.");
+      return false;
+    }
+    if (kind === "post" && !excerpt) {
+      popupAlert("Missing caption", "Write a short caption for the post.");
+      return false;
+    }
+    if (kind === "story" && (!eventTitle.trim() || !(options.body || "").trim())) {
+      popupAlert("Missing fields", "A story needs a title and the story text.");
+      return false;
+    }
+    if (kind !== "event" && !hasParent && !eventDate) {
+      popupAlert("Missing fields", "Pick a date, or attach this to an existing event.");
       return false;
     }
 
@@ -367,27 +458,31 @@ export default function App() {
       await uploadEvent({
         token,
         title: eventTitle,
-        caption,
-        typeId: selectedTypeId,
-        eventDate,
+        caption: excerpt,
+        eventDate: hasParent ? undefined : eventDate,
+        endDate: hasParent || kind !== "event" ? undefined : eventEndDate || undefined,
         mediaType,
         media,
-        costCenterId,
+        costCenterId: costCenterId || undefined,
         cityId: cityId || undefined,
         location: eventLocation,
+        kind,
+        parentEventId: options.parentEventId,
+        body: kind === "story" ? options.body : undefined,
       });
-      setEventTitle("");
-      setCaption("");
-      setEventLocation("");
-      setMedia(null);
+      resetDraft();
       await loadSessionData();
-      Alert.alert(
+      popupAlert(
         "Success",
-        "Event saved for this cost center. An admin can approve it and notify donors."
+        kind === "event"
+          ? "Event created. It shows in the Events tab as Upcoming or Live based on its dates."
+          : kind === "story"
+            ? "Story published for review."
+            : "Post added for review."
       );
       return true;
     } catch (error) {
-      Alert.alert("Upload error", (error as Error).message);
+      popupAlert("Upload error", (error as Error).message);
       return false;
     } finally {
       setIsLoading(false);
@@ -408,14 +503,7 @@ export default function App() {
     setCities([]);
     setCostCenters([]);
     setEvents([]);
-    setEventTypes([]);
-    setSelectedTypeId("");
-    setEventTitle("");
-    setCaption("");
-    setEventDate(new Date().toISOString().slice(0, 10));
-    setEventLocation("");
-    setMediaType("photo");
-    setMedia(null);
+    resetDraft();
     setIsLoading(false);
     setRoute("home");
   }
@@ -424,8 +512,28 @@ export default function App() {
     return <NotFoundScreen onGoHome={() => setRoute("home")} onGoLogin={handleLogout} />;
   }
 
-  if (!isAuthBootstrapped) {
-    return null;
+  // Draw a light loading screen rather than nothing: an empty tree shows as a black window on Android.
+  // The branded loader needs the app fonts, so a plain version covers the moment before they load.
+  if (isAuthBootstrapped === false && (fontsLoaded || fontError)) {
+    return <ListLoader splash message="Getting things ready..." />;
+  }
+  if (!isAuthBootstrapped || !(fontsLoaded || fontError)) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 24, backgroundColor: "#f9f9ff" }}>
+        <Image source={require("../assets/akanksha-logo.png")} style={{ width: 200, height: 106 }} resizeMode="contain" />
+        <ActivityIndicator size="large" color="#b50c08" />
+      </View>
+    );
+  }
+
+  if (__DEV__ && Platform.OS === "web" && typeof window !== "undefined" && window.location.search.includes("preview=cards")) {
+    return <CardPreview />;
+  }
+  if (__DEV__ && Platform.OS === "web" && typeof window !== "undefined" && window.location.search.includes("preview=profile")) {
+    return <ProfilePreview />;
+  }
+  if (__DEV__ && Platform.OS === "web" && typeof window !== "undefined" && window.location.search.includes("preview=calendar")) {
+    return <CalendarEventsPreview />;
   }
 
   if (!token || !user) {
@@ -448,8 +556,6 @@ export default function App() {
       cities={cities}
       costCenters={costCenters}
       events={events}
-      eventTypes={eventTypes}
-      selectedTypeId={selectedTypeId}
       eventTitle={eventTitle}
       caption={caption}
       eventDate={eventDate}
@@ -459,13 +565,20 @@ export default function App() {
       isLoading={isLoading}
       onLogout={handleLogout}
       onSelectMediaType={setMediaType}
-      onSelectType={setSelectedTypeId}
       onChangeEventDate={setEventDate}
       onChangeEventTitle={setEventTitle}
       onChangeCaption={setCaption}
       onChangeEventLocation={setEventLocation}
       onCaptureMedia={handleCaptureFromCamera}
+      onPickMedia={handlePickFromLibrary}
+      sessionLoading={sessionLoading}
+      onReload={() => loadSessionData().catch(() => undefined)}
       onSaveEvent={handleSubmitEvent}
+      body={body}
+      onChangeBody={setBody}
+      eventEndDate={eventEndDate}
+      onChangeEventEndDate={setEventEndDate}
+      onDiscardDraft={resetDraft}
     />
   );
 }

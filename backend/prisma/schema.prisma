@@ -8,10 +8,10 @@ datasource db {
 }
 
 enum UserRole {
-  admin
-  employee
-  volunteer
+  user
   donor
+  special
+  super_admin
 }
 
 enum MediaType {
@@ -25,16 +25,51 @@ enum EventStatus {
   complete
 }
 
+enum ReviewStatus {
+  pending
+  approved
+}
+
+enum ContentKind {
+  event
+  post
+  story
+}
+
 model User {
   id            String   @id @default(cuid())
   email         String   @unique
   name          String
-  role          UserRole @default(volunteer)
+  role          UserRole @default(user)
   googleSub     String   @unique
+  /// AFDW employees.employee_code; the stable link to the HR record (email can change).
+  employeeCode  String?  @unique
   profileImage  String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  cityId        String?
+  city          City?       @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  costCenterId  String?
+  costCenter    CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
   uploadedEvents Event[]
+  googleCalendar GoogleCalendarConnection?
+
+  @@index([cityId])
+  @@index([costCenterId])
+}
+
+/// A user's linked Google Calendar (OAuth tokens for the calendar.readonly scope).
+model GoogleCalendarConnection {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  googleEmail  String
+  accessToken  String   @db.Text
+  refreshToken String   @db.Text
+  scope        String?  @db.Text
+  expiresAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model EventType {
@@ -56,6 +91,7 @@ model City {
   costCenters      CostCenter[]
   events           Event[]
   calendarEntries  CalendarEntry[]
+  users            User[]
 }
 
 model CostCenter {
@@ -74,6 +110,7 @@ model CostCenter {
   events           Event[]
   calendarEntries  CalendarEntry[]
   notifications    DonorNotification[]
+  users            User[]
 
   @@index([cityId])
 }
@@ -91,6 +128,27 @@ model Donor {
 
   @@unique([email, costCenterId])
   @@index([costCenterId])
+}
+
+/** Key/value settings editable from the Admin console (e.g. per-user limits). */
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+/** How many times a user has run "Polish with AI" on one draft description (draftId is minted by the client per form). */
+model AiPolishUsage {
+  id        String      @id @default(cuid())
+  userId    String
+  draftId   String
+  kind      ContentKind @default(post)
+  count     Int         @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([userId, draftId])
+  @@index([updatedAt])
 }
 
 model DonorNotification {
@@ -133,26 +191,38 @@ model CalendarEntry {
 model Event {
   id                 String      @id @default(cuid())
   title              String?
-  caption            String
+  caption            String      @db.Text
   eventDate          DateTime
   location           String?
   eventStatus        EventStatus @default(upcoming)
+  /** Last day the event is live; same as eventDate when unset. Status is derived from these dates. */
+  endDate            DateTime?
   approvedForGallery Boolean     @default(false)
+  reviewStatus       ReviewStatus @default(pending)
+  reviewedById       String?
+  reviewedAt         DateTime?
+  kind               ContentKind @default(event)
+  parentEventId      String?
+  body               String?     @db.Text
   mediaType          MediaType
   mediaUrl           String
   mediaDriveFileId   String
   originalName       String
   uploadedByName     String?
+  /** Set when the event was imported from Google Calendar; stops the same event being imported twice. */
+  googleEventId      String?     @unique
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
-  typeId             String
+  typeId             String?
   costCenterId       String?
   cityId             String?
   uploadedById       String
-  eventType          EventType   @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  eventType          EventType?  @relation(fields: [typeId], references: [id], onDelete: SetNull)
   costCenter         CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
   city               City?       @relation(fields: [cityId], references: [id], onDelete: SetNull)
   uploadedBy         User        @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  parentEvent        Event?      @relation("EventContributions", fields: [parentEventId], references: [id], onDelete: SetNull)
+  posts              Event[]     @relation("EventContributions")
   notifications      DonorNotification[]
 
   @@index([typeId])
@@ -162,4 +232,7 @@ model Event {
   @@index([cityId])
   @@index([eventStatus])
   @@index([approvedForGallery])
+  @@index([reviewStatus])
+  @@index([kind])
+  @@index([parentEventId])
 }

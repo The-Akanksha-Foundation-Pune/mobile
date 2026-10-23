@@ -3,15 +3,25 @@ import { API_BASE_URL } from "../config/constants";
 import { Platform } from "react-native";
 import { resolveEventMediaUrl } from "../utils/mediaUrl";
 import type {
+  AppLimits,
+  CalendarConnection,
   CalendarEntry,
+  CalendarImportResult,
+  GoogleCalendarEventsPage,
   City,
+  ContentKind,
+  EventDetail,
   CostCenter,
   EventItem,
   EventStatus,
   EventType,
   MediaMode,
+  Permission,
+  ProfileUpdate,
+  ReviewStatus,
   SelectedMedia,
   User,
+  UserRole,
 } from "../types/app";
 
 type AuthResponse = {
@@ -69,7 +79,7 @@ function isNgrokApiBase(url: string): boolean {
 }
 
 /** ngrok free tier returns an HTML interstitial unless this header is sent. */
-function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+export function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   if (isNgrokApiBase(url)) {
     headers.set("ngrok-skip-browser-warning", "69420");
@@ -175,6 +185,61 @@ export async function fetchCurrentUser(token: string): Promise<User> {
   return parseJson<User>(response, "Session is invalid.");
 }
 
+export async function updateProfile(token: string, update: ProfileUpdate): Promise<User> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/auth/me`, {
+    method: "PATCH",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify(update),
+  });
+  return parseJson<User>(response, "Failed to update profile.");
+}
+
+export type AccessUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  roleLabel: string;
+  permissions: Permission[];
+  cityName: string;
+  costCenterCode: string;
+  createdAt: string;
+};
+
+export async function fetchAccessUsers(token: string, query = ""): Promise<AccessUser[]> {
+  const baseUrl = getApiBaseUrl();
+  const params = query ? `?q=${encodeURIComponent(query)}` : "";
+  const response = await apiFetch(`${baseUrl}/api/access/users${params}`, { headers: authHeaders(token) });
+  return parseJson<AccessUser[]>(response, "Failed to load users.");
+}
+
+export async function updateUserRole(token: string, userId: string, role: UserRole): Promise<AccessUser> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/access/users/${userId}/role`, {
+    method: "PATCH",
+    headers: authHeaders(token, true),
+    body: JSON.stringify({ role }),
+  });
+  return parseJson<AccessUser>(response, "Failed to update role.");
+}
+
+export async function fetchSettings(token: string): Promise<{ limits: AppLimits }> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/settings`, { headers: authHeaders(token) });
+  return parseJson<{ limits: AppLimits }>(response, "Failed to load settings.");
+}
+
+export async function updateLimits(token: string, limits: AppLimits): Promise<{ limits: AppLimits }> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/settings/limits`, {
+    method: "PATCH",
+    headers: authHeaders(token, true),
+    body: JSON.stringify(limits),
+  });
+  return parseJson<{ limits: AppLimits }>(response, "Failed to save limits.");
+}
+
 export async function fetchEventBootstrap(token: string): Promise<{
   eventTypes: EventType[];
   events: EventItem[];
@@ -216,6 +281,8 @@ export async function fetchCostCenters(token: string): Promise<CostCenter[]> {
 
 export async function fetchEvents(args: {
   token: string;
+  kind?: ContentKind;
+  parentEventId?: string;
   costCenterId?: string;
   cityId?: string;
   status?: EventStatus;
@@ -224,6 +291,8 @@ export async function fetchEvents(args: {
 }): Promise<EventItem[]> {
   const baseUrl = getApiBaseUrl();
   const params = new URLSearchParams();
+  if (args.kind) params.set("kind", args.kind);
+  if (args.parentEventId) params.set("parentEventId", args.parentEventId);
   if (args.costCenterId) params.set("costCenterId", args.costCenterId);
   if (args.cityId) params.set("cityId", args.cityId);
   if (args.status) params.set("status", args.status);
@@ -240,13 +309,26 @@ export async function fetchEvents(args: {
   }));
 }
 
+/** One event plus the posts and stories attached to it. */
+export async function fetchEventDetail(token: string, eventId: string): Promise<EventDetail> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/events/${eventId}`, { headers: authHeaders(token) });
+  const data = await parseJson<EventItem & Omit<EventDetail, "event">>(response, "Failed to load event.");
+  const { posts, stories, limits, myCounts, remaining, ...event } = data;
+  const withMedia = (item: EventItem): EventItem => ({ ...item, mediaUrl: resolveEventMediaUrl(item.mediaUrl) });
+  return { event: withMedia(event), posts: posts.map(withMedia), stories: stories.map(withMedia), limits, myCounts, remaining };
+}
+
 export async function fetchCalendarEntries(args: {
   token: string;
-  costCenterId: string;
+  costCenterId?: string;
+  cityId?: string;
   month?: string;
 }): Promise<CalendarEntry[]> {
   const baseUrl = getApiBaseUrl();
-  const params = new URLSearchParams({ costCenterId: args.costCenterId });
+  const params = new URLSearchParams();
+  if (args.costCenterId) params.set("costCenterId", args.costCenterId);
+  else if (args.cityId) params.set("cityId", args.cityId);
   if (args.month) params.set("month", args.month);
 
   const response = await apiFetch(`${baseUrl}/api/calendar?${params.toString()}`, {
@@ -270,6 +352,32 @@ export async function notifyEventDonors(token: string, eventId: string): Promise
     headers: authHeaders(token, true),
   });
   return parseJson<{ notifiedCount: number }>(response, "Failed to notify donors.");
+}
+
+export type ReviewPayload = { status: ReviewStatus };
+
+export async function reviewEvent(token: string, eventId: string, payload: ReviewPayload): Promise<EventItem> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/admin/events/${eventId}/review`, {
+    method: "PATCH",
+    headers: authHeaders(token, true),
+    body: JSON.stringify(payload),
+  });
+  return parseJson<EventItem>(response, "Failed to update review.");
+}
+
+export async function bulkReviewEvents(
+  token: string,
+  eventIds: string[],
+  status: ReviewStatus
+): Promise<{ updated: number }> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/admin/events/bulk-review`, {
+    method: "POST",
+    headers: authHeaders(token, true),
+    body: JSON.stringify({ eventIds, status }),
+  });
+  return parseJson<{ updated: number }>(response, "Failed to update reviews.");
 }
 
 export async function moderateEvent(args: {
@@ -301,6 +409,33 @@ export async function fetchAllCostCentersAdmin(token: string): Promise<CostCente
     headers: authHeaders(token),
   });
   return parseJson<CostCenter[]>(response, "Failed to load cost centers.");
+}
+
+export type CostCenterInput = {
+  code?: string;
+  name?: string;
+  cityId?: string;
+  isActive?: boolean;
+};
+
+export async function createCostCenterAdmin(token: string, input: CostCenterInput): Promise<CostCenter> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/cost-centers`, {
+    method: "POST",
+    headers: authHeaders(token, true),
+    body: JSON.stringify(input),
+  });
+  return parseJson<CostCenter>(response, "Failed to create cost center.");
+}
+
+export async function updateCostCenterAdmin(token: string, costCenterId: string, input: CostCenterInput): Promise<CostCenter> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/cost-centers/${encodeURIComponent(costCenterId)}`, {
+    method: "PATCH",
+    headers: authHeaders(token, true),
+    body: JSON.stringify(input),
+  });
+  return parseJson<CostCenter>(response, "Failed to update cost center.");
 }
 
 export async function fetchAllCitiesAdmin(token: string): Promise<City[]> {
@@ -374,29 +509,37 @@ export async function deleteCalendarEntry(token: string, entryId: string): Promi
 
 export async function uploadEvent(args: {
   token: string;
-  title: string;
+  title?: string;
   caption: string;
-  typeId: string;
-  eventDate: string;
+  typeId?: string;
+  eventDate?: string;
+  endDate?: string;
   mediaType: MediaMode;
   media: SelectedMedia;
-  costCenterId: string;
+  costCenterId?: string | null;
   cityId?: string;
   location?: string;
+  kind?: ContentKind;
+  parentEventId?: string;
+  body?: string;
 }): Promise<void> {
   const baseUrl = getApiBaseUrl();
-  const { token, title, caption, typeId, eventDate, mediaType, media, costCenterId, cityId, location } = args;
+  const { token, title, caption, typeId, eventDate, endDate, mediaType, media, costCenterId, cityId, location, kind, parentEventId, body } = args;
   if (!media) {
     throw new Error("Media is required.");
   }
 
   const formData = new FormData();
-  formData.append("title", title.trim());
+  if (title?.trim()) formData.append("title", title.trim());
   formData.append("caption", caption.trim());
-  formData.append("typeId", typeId);
-  formData.append("eventDate", eventDate);
+  if (typeId) formData.append("typeId", typeId);
+  if (eventDate) formData.append("eventDate", eventDate);
+  if (endDate) formData.append("endDate", endDate);
   formData.append("mediaType", mediaType);
-  formData.append("costCenterId", costCenterId);
+  if (kind) formData.append("kind", kind);
+  if (parentEventId) formData.append("parentEventId", parentEventId);
+  if (body?.trim()) formData.append("body", body.trim());
+  if (costCenterId) formData.append("costCenterId", costCenterId);
   if (cityId) formData.append("cityId", cityId);
   if (location?.trim()) formData.append("location", location.trim());
 
@@ -433,12 +576,36 @@ export type PolishEventDescriptionContext = {
   eventDate?: string;
 };
 
+export type PolishEventDescriptionResult = {
+  polished: string;
+  /** Polishes left for this draft; null when the server is not tracking this request. */
+  remaining: number | null;
+  limit: number;
+  /** True when Google AI was unavailable (quota or credit) and a local cleanup was used instead. */
+  fallback: boolean;
+  /** Explanation to show the user when `fallback` is true. */
+  message?: string;
+};
+
+/** Thrown when the per-draft polish allowance is used up. */
+export class PolishLimitError extends Error {
+  readonly limit: number;
+  constructor(message: string, limit: number) {
+    super(message);
+    this.name = "PolishLimitError";
+    this.limit = limit;
+  }
+}
+
 export async function polishEventDescription(args: {
   token: string;
   description: string;
+  /** Stable id for the form being edited; the server counts polishes against it. */
+  draftId: string;
+  kind: ContentKind;
   context?: PolishEventDescriptionContext;
-}): Promise<string> {
-  const { token, description, context } = args;
+}): Promise<PolishEventDescriptionResult> {
+  const { token, description, draftId, kind, context } = args;
   const text = description.trim();
   if (!text) {
     throw new Error("Add a description before polishing.");
@@ -447,11 +614,14 @@ export async function polishEventDescription(args: {
   const response = await apiFetch(`${baseUrl}/api/ai/polish-description`, {
     method: "POST",
     headers: authHeaders(token, true),
-    body: JSON.stringify({ description: text, ...context }),
+    body: JSON.stringify({ description: text, draftId, kind, ...context }),
   });
 
   const data = await response.json();
   if (!response.ok) {
+    if (data?.code === "polish_limit") {
+      throw new PolishLimitError(data?.message || "No AI polishes left for this draft.", Number(data?.limit) || 0);
+    }
     throw new Error(data?.message || "Failed to polish description.");
   }
 
@@ -459,5 +629,113 @@ export async function polishEventDescription(args: {
   if (!polished) {
     throw new Error("No polished text was returned.");
   }
-  return polished;
+  return {
+    polished,
+    remaining: typeof data?.remaining === "number" ? data.remaining : null,
+    limit: Number(data?.limit) || 0,
+    fallback: Boolean(data?.fallback),
+    message: typeof data?.message === "string" ? data.message : undefined,
+  };
+}
+
+// ---- Google Calendar connection (Special Access) ----
+
+export class CalendarDisconnectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CalendarDisconnectedError";
+  }
+}
+
+async function parseCalendarJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const text = await response.text();
+  let data: { message?: string; code?: string } & T;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Backend returned non-JSON (HTTP ${response.status}). ${fallbackMessage}`);
+  }
+  if (!response.ok) {
+    const message = data?.message || fallbackMessage;
+    if (data?.code === "calendar_disconnected" || data?.code === "calendar_not_connected") {
+      throw new CalendarDisconnectedError(message);
+    }
+    throw new Error(message);
+  }
+  return data;
+}
+
+export async function fetchCalendarConnection(token: string): Promise<CalendarConnection> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/calendar/google/status`, { headers: authHeaders(token) });
+  return parseCalendarJson<CalendarConnection>(response, "Could not check the calendar connection.");
+}
+
+/**
+ * Asks the backend for the Google consent URL; the app then opens it in a browser session.
+ * redirectMode "app" (web): Google returns straight to returnUrl with ?code=, which the app
+ * then posts to exchangeCalendarCode. "backend" (phones): Google returns via the server callback.
+ */
+export async function requestCalendarConnectUrl(
+  token: string,
+  returnUrl: string,
+  redirectMode: "app" | "backend" = "backend"
+): Promise<string> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/calendar/google/connect`, {
+    method: "POST",
+    headers: authHeaders(token, true),
+    body: JSON.stringify({ returnUrl, redirectMode }),
+  });
+  const data = await parseCalendarJson<{ url: string }>(response, "Could not start the calendar connection.");
+  return data.url;
+}
+
+/** Web passes the code and state Google returned; phones pass the native SDK's serverAuthCode. */
+export async function exchangeCalendarCode(
+  token: string,
+  args: { code: string; state: string } | { serverAuthCode: string }
+): Promise<CalendarConnection> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/calendar/google/exchange`, {
+    method: "POST",
+    headers: authHeaders(token, true),
+    body: JSON.stringify(args),
+  });
+  return parseCalendarJson<CalendarConnection>(response, "Could not complete the calendar connection.");
+}
+
+export async function disconnectCalendar(token: string): Promise<void> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/calendar/google`, { method: "DELETE", headers: authHeaders(token) });
+  await parseCalendarJson<{ connected: false }>(response, "Could not disconnect the calendar.");
+}
+
+export async function fetchGoogleCalendarEvents(
+  token: string,
+  range: { from?: Date; to?: Date; max?: number } = {}
+): Promise<GoogleCalendarEventsPage> {
+  const baseUrl = getApiBaseUrl();
+  const params = new URLSearchParams();
+  if (range.from) params.set("from", range.from.toISOString());
+  if (range.to) params.set("to", range.to.toISOString());
+  if (range.max) params.set("max", String(range.max));
+  const query = params.toString();
+  const response = await apiFetch(`${baseUrl}/api/calendar/google/events${query ? `?${query}` : ""}`, {
+    headers: authHeaders(token),
+  });
+  return parseCalendarJson<GoogleCalendarEventsPage>(response, "Could not load events from Google Calendar.");
+}
+
+export async function importGoogleCalendarEvents(
+  token: string,
+  args: { eventIds: string[]; costCenterId: string; cityId?: string | null }
+): Promise<CalendarImportResult> {
+  const baseUrl = getApiBaseUrl();
+  const response = await apiFetch(`${baseUrl}/api/calendar/google/import`, {
+    method: "POST",
+    headers: authHeaders(token, true),
+    body: JSON.stringify(args),
+  });
+  return parseCalendarJson<CalendarImportResult>(response, "Could not import the selected events.");
 }

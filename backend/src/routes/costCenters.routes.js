@@ -1,11 +1,12 @@
 const express = require("express");
 const { z } = require("zod");
-const { requireAuth, requireRole } = require("../middleware/auth");
+const { requireAuth, requirePermission } = require("../middleware/auth");
 const prisma = require("../lib/prisma");
 const {
   syncCostCentersFromFinance,
   serializeCostCenter,
 } = require("../services/financeCostCenter");
+const { syncCostCentersFromEmployees } = require("../services/employeeCostCenter");
 
 const router = express.Router();
 
@@ -18,13 +19,23 @@ const costCenterSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+// COSTCENTER_SOURCE=employees builds cost centres from AFDW.employees; otherwise the Finance table.
+const useEmployeeSource = () => process.env.COSTCENTER_SOURCE === "employees";
+const syncCostCenters = () =>
+  useEmployeeSource() ? syncCostCentersFromEmployees() : syncCostCentersFromFinance();
+
+// Listing triggers the sync, so throttle it: the source changes rarely and each run writes every row.
+const SYNC_INTERVAL_MS = 10 * 60 * 1000;
+let lastSyncAt = 0;
+
 async function listCostCentersWithCityOnly() {
   const useFinance = process.env.FINANCE_COSTCENTER_SYNC !== "false";
-  if (useFinance) {
+  if (useFinance && Date.now() - lastSyncAt > SYNC_INTERVAL_MS) {
     try {
-      await syncCostCentersFromFinance();
+      await syncCostCenters();
+      lastSyncAt = Date.now();
     } catch (error) {
-      console.error("Finance cost center sync failed:", error.message);
+      console.error("Cost center sync failed:", error.message);
       if (process.env.FINANCE_COSTCENTER_REQUIRED === "true") {
         throw error;
       }
@@ -54,12 +65,16 @@ router.get("/", requireAuth, async (_req, res) => {
   }
 });
 
-router.get("/sync-status", requireAuth, requireRole("admin"), async (_req, res) => {
+router.get("/sync-status", requireAuth, requirePermission("manage_settings"), async (_req, res) => {
   try {
-    const result = await syncCostCentersFromFinance();
+    const result = await syncCostCenters();
+    lastSyncAt = Date.now();
     return res.json({
+      source: useEmployeeSource() ? "employees" : "finance",
       syncedCount: result.synced.length,
       skippedCount: result.skipped.length,
+      deactivatedCount: result.deactivated ?? 0,
+      citiesAdded: result.citiesAdded ?? 0,
       columnMap: result.columnMap,
       skipped: result.skipped.slice(0, 50),
     });
@@ -68,7 +83,7 @@ router.get("/sync-status", requireAuth, requireRole("admin"), async (_req, res) 
   }
 });
 
-router.get("/all", requireAuth, requireRole("admin"), async (_req, res) => {
+router.get("/all", requireAuth, requirePermission("manage_settings"), async (_req, res) => {
   try {
     await listCostCentersWithCityOnly();
   } catch (_error) {
@@ -83,7 +98,13 @@ router.get("/all", requireAuth, requireRole("admin"), async (_req, res) => {
   return res.json(centers.map(serializeCostCenter));
 });
 
-router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
+/** Codes are unique and stored upper-case; true when another cost center already uses this one. */
+async function codeTaken(code, exceptId = null) {
+  const match = await prisma.costCenter.findUnique({ where: { code: code.trim().toUpperCase() } });
+  return Boolean(match && match.id !== exceptId);
+}
+
+router.post("/", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const parsed = costCenterSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid cost center payload." });
@@ -96,6 +117,10 @@ router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
   const city = await prisma.city.findUnique({ where: { id: parsed.data.cityId } });
   if (!city) {
     return res.status(404).json({ message: "City not found." });
+  }
+
+  if (await codeTaken(parsed.data.code)) {
+    return res.status(409).json({ message: "A cost center with this code already exists." });
   }
 
   const center = await prisma.costCenter.create({
@@ -113,7 +138,7 @@ router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
   return res.status(201).json(serializeCostCenter(center));
 });
 
-router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
+router.patch("/:id", requireAuth, requirePermission("manage_settings"), async (req, res) => {
   const parsed = costCenterSchema.partial().safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Invalid cost center update." });
@@ -129,6 +154,10 @@ router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
     if (!city) {
       return res.status(404).json({ message: "City not found." });
     }
+  }
+
+  if (parsed.data.code !== undefined && (await codeTaken(parsed.data.code, existing.id))) {
+    return res.status(409).json({ message: "A cost center with this code already exists." });
   }
 
   const center = await prisma.costCenter.update({

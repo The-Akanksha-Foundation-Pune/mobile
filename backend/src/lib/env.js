@@ -1,4 +1,5 @@
 require("dotenv").config();
+const path = require("path");
 
 function withMysqlSslParams(url, host) {
   if (!url || /[?&]sslaccept=/.test(url)) return url;
@@ -6,8 +7,16 @@ function withMysqlSslParams(url, host) {
   const useSsl =
     process.env.DB_SSL === "true" ||
     (host && (host.includes("amazonaws.com") || host.includes("rds.amazonaws.com")));
+  if (!useSsl) return url;
 
-  return useSsl ? `${url}?sslaccept=strict` : url;
+  // RDS certificates are signed by Amazon's own CA, which Prisma does not trust by default.
+  // Without DB_SSL_CA the connection is still encrypted, using Prisma's default
+  // sslaccept=accept_invalid_certs. Set DB_SSL_CA to the CA bundle (e.g. AWS
+  // global-bundle.pem, relative to backend/) to also verify the server certificate.
+  const ca = process.env.DB_SSL_CA;
+  if (!ca) return url;
+  const caPath = encodeURIComponent(path.resolve(__dirname, "../..", ca));
+  return `${url}${url.includes("?") ? "&" : "?"}sslaccept=strict&sslcert=${caPath}`;
 }
 
 function buildDatabaseUrlFromParts() {
